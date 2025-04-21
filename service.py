@@ -4,7 +4,9 @@ import pytz
 import logging
 
 from config import APPROPRIATE_HOURS_START, APPROPRIATE_HOURS_END
-from models import DeliveryChannel, Notification, NotificationStatus, db_session
+from exception import NotificationNotFoundException, InvalidNotificationStateException
+from models import DeliveryChannel, Notification, NotificationStatus, db_session, NotificationRequest
+from notification_validator import NotificationValidator
 from tasks import schedule_notification, force_immediate_delivery, cancel_notification
 from sqlalchemy import and_
 from metrics import metrics
@@ -15,52 +17,48 @@ class NotificationService:
 
     @staticmethod
     def schedule_push_notification(
-            recipient_id: str,
-            content: str,
-            timezone: str = "UTC",
-            scheduled_time: Optional[str] = None
+        notification: NotificationRequest,
     ) -> str:
+        validator = NotificationValidator(notification)
+        validator.validate()
         return schedule_notification.delay(
-            recipient_id=recipient_id,
-            content=content,
+            recipient_id=notification.recipient_id,
+            content=notification.content,
             channel=DeliveryChannel.PUSH,
-            timezone=timezone,
-            scheduled_time=scheduled_time
+            timezone=notification.timezone,
+            scheduled_time=notification.scheduled_time
         ).id
 
     @staticmethod
     def schedule_email_notification(
-            recipient_id: str,
-            content: str,
-            timezone: str = "UTC",
-            scheduled_time: Optional[str] = None
+     notification: NotificationRequest,
     ) -> str:
+        validator = NotificationValidator(notification)
+        validator.validate()
         return schedule_notification.delay(
-            recipient_id=recipient_id,
-            content=content,
+            recipient_id=notification.recipient_id,
+            content=notification.content,
             channel=DeliveryChannel.EMAIL,
-            timezone=timezone,
-            scheduled_time=scheduled_time
+            timezone=notification.timezone,
+            scheduled_time=notification.scheduled_time
         ).id
     
     @staticmethod
-    def force_delivery(notification_id: str) -> Dict[str, Any]:
+    def force_delivery(notification_id: str) -> Dict[str, Any]|None:
         session = db_session()
         try:
             notification = session.query(Notification).filter(Notification.id == notification_id).first()
             if not notification:
                 logger.warning(f"Force delivery attempt for non-existent notification: {notification_id}")
-                return {"error": "Notification not found"}
+                raise NotificationNotFoundException(f"Notification not found: {notification_id}")
             
             if notification.status != NotificationStatus.SCHEDULED:
                 logger.warning(
                     f"Cannot force delivery for notification {notification_id} with status {notification.status}"
                 )
-                return {
-                    "error": f"Cannot force delivery for notification with status {notification.status}",
-                    "notification_id": notification_id,
-                    "status": notification.status
-                }
+                raise InvalidNotificationStateException(
+                    f"Cannot force delivery for notification with status {notification.status}"
+                )
 
             logger.info(f"Forcing immediate delivery of notification {notification_id}")
             result = force_immediate_delivery.delay(notification_id)
@@ -75,24 +73,22 @@ class NotificationService:
             session.close()
     
     @staticmethod
-    def cancel_notification(notification_id: str) -> None|dict:
+    def cancel_notification(notification_id: str) -> Dict[str, Any]:
         """Cancel a scheduled notification"""
         session = db_session()
         try:
             notification = session.query(Notification).filter(Notification.id == notification_id).first()
             if not notification:
                 logger.warning(f"Cancel attempt for non-existent notification: {notification_id}")
-                return {"error": "Notification not found"}
+                raise NotificationNotFoundException(f"Notification not found: {notification_id}")
             
             if notification.status != NotificationStatus.SCHEDULED:
                 logger.warning(
                     f"Cannot cancel notification {notification_id} with status {notification.status}"
                 )
-                return {
-                    "error": f"Cannot cancel notification with status {notification.status}",
-                    "notification_id": notification_id,
-                    "status": notification.status
-                }
+                raise InvalidNotificationStateException(
+                    f"Cannot cancel notification with status {notification.status}"
+                )
             
             logger.info(f"Cancelling scheduled notification {notification_id}")
             result = cancel_notification.delay(notification_id)
@@ -107,14 +103,13 @@ class NotificationService:
             session.close()
         
     @staticmethod
-    def get_notification_status(notification_id: str) -> dict:
-        """Get detailed status of a notification"""
+    def get_notification_status(notification_id: str) -> Dict[str, Any]:
         session = db_session()
         try:
             notification = session.query(Notification).filter(Notification.id == notification_id).first()
             if not notification:
                 logger.warning(f"Status request for non-existent notification: {notification_id}")
-                return {"error": "Notification not found"}
+                raise NotificationNotFoundException(f"Notification not found: {notification_id}")
             
             status_map = {
                 "scheduled": "Pending",
@@ -167,7 +162,7 @@ class NotificationService:
         recipient_id: Optional[str] = None,
         limit: int = 100,
         offset: int = 0
-    ) -> None|List[Dict[str, Any]]:
+    ) -> List[Dict[str, Any]]|None:
         session = db_session()
         try:
             query = session.query(Notification)
@@ -238,4 +233,6 @@ class NotificationService:
         channel: Optional[str] = None,
         time_period: Optional[int] = None
     ) -> Dict[str, Any]:
+        if time_period is not None and time_period <= 0:
+            raise ValueError("Time period must be a positive integer")
         return metrics.get_metrics(server_id, channel, time_period)

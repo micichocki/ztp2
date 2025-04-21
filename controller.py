@@ -1,76 +1,92 @@
-from typing import Dict, Any, Optional
-from fastapi import APIRouter, HTTPException, Query
+from datetime import datetime
+from typing import Optional
+from fastapi import HTTPException, Query, Depends
 
-from models import TaskResponse, NotificationResponse, NotificationRequest, NotificationListResponse
+from exception import NotificationNotFoundException, InvalidNotificationStateException
+from models import NotificationRequest
 from service import NotificationService
+import logging
 
-notification_router = APIRouter(prefix="/api/notifications", tags=["notifications"])
+logger = logging.getLogger(__name__)
 
+
+class HealthController:
+    @staticmethod
+    async def health_check():
+        return {"status": "healthy", "timestamp": datetime.utcnow().isoformat()}
 
 class NotificationController:
-
     @staticmethod
-    @notification_router.post("/push", response_model=NotificationResponse, status_code=201)
     async def create_push_notification(request: NotificationRequest):
-        notification_id = NotificationService.schedule_push_notification(
-            recipient_id=request.recipient_id,
-            content=request.content,
-            timezone=request.timezone,
-            scheduled_time=request.scheduled_time
-        )
-        
-        return {
-            'notification_id': notification_id,
-            'status': 'scheduled'
-        }
+        try:
+            notification_id = NotificationService.schedule_push_notification(request)
+            
+            return {
+                'notification_id': notification_id,
+                'status': 'scheduled',
+                'message': 'Push notification scheduled'
+            }
+        except Exception as e:
+            logger.error(f"Error scheduling push notification: {str(e)}")
+            raise HTTPException(status_code=500, detail=str(e))
     
     @staticmethod
-    @notification_router.post("/email", response_model=NotificationResponse, status_code=201)
     async def create_email_notification(request: NotificationRequest):
-        notification_id = NotificationService.schedule_email_notification(
-            recipient_id=request.recipient_id,
-            content=request.content,
-            timezone=request.timezone,
-            scheduled_time=request.scheduled_time
-        )
-        
-        return {
-            'notification_id': notification_id,
-            'status': 'scheduled'
-        }
+        try:
+            notification_id = NotificationService.schedule_email_notification(request)
+            
+            return {
+                'notification_id': notification_id,
+                'status': 'scheduled',
+                'message': 'Email notification scheduled'
+            }
+        except Exception as e:
+            logger.error(f"Error scheduling email notification: {str(e)}")
+            raise HTTPException(status_code=500, detail=str(e))
     
     @staticmethod
-    @notification_router.post("/{notification_id}/force", response_model=TaskResponse)
     async def force_notification_delivery(notification_id: str):
-        result = NotificationService.force_delivery(notification_id)
-        
-        if 'error' in result:
-            raise HTTPException(status_code=400, detail=result['error'])
-        
-        return result
+        try:
+            result = NotificationService.force_delivery(notification_id)
+            return result
+        except NotificationNotFoundException as e:
+            logger.warning(f"Notification not found: {notification_id}")
+            raise HTTPException(status_code=404, detail=str(e))
+        except InvalidNotificationStateException as e:
+            logger.warning(f"Invalid notification state: {notification_id}")
+            raise HTTPException(status_code=400, detail=str(e))
+        except Exception as e:
+            logger.error(f"Error forcing notification delivery: {str(e)}")
+            raise HTTPException(status_code=500, detail=str(e))
     
     @staticmethod
-    @notification_router.post("/{notification_id}/cancel", response_model=TaskResponse)
     async def cancel_notification(notification_id: str):
-        result = NotificationService.cancel_notification(notification_id)
-        
-        if 'error' in result:
-            raise HTTPException(status_code=400, detail=result['error'])
-        
-        return result
+        try:
+            result = NotificationService.cancel_notification(notification_id)
+            return result
+        except NotificationNotFoundException as e:
+            logger.warning(f"Notification not found: {notification_id}")
+            raise HTTPException(status_code=404, detail=str(e))
+        except InvalidNotificationStateException as e:
+            logger.warning(f"Invalid notification state: {notification_id}")
+            raise HTTPException(status_code=400, detail=str(e))
+        except Exception as e:
+            logger.error(f"Error canceling notification: {str(e)}")
+            raise HTTPException(status_code=500, detail=str(e))
     
     @staticmethod
-    @notification_router.get("/{notification_id}", response_model=Dict[str, Any])
     async def get_notification(notification_id: str):
-        result = NotificationService.get_notification_status(notification_id)
-        
-        if 'error' in result:
-            raise HTTPException(status_code=404, detail=result['error'])
-        
-        return result
+        try:
+            result = NotificationService.get_notification_status(notification_id)
+            return result
+        except NotificationNotFoundException as e:
+            logger.warning(f"Notification not found: {notification_id}")
+            raise HTTPException(status_code=404, detail=str(e))
+        except Exception as e:
+            logger.error(f"Error retrieving notification: {str(e)}")
+            raise HTTPException(status_code=500, detail=str(e))
     
     @staticmethod
-    @notification_router.get("/", response_model=NotificationListResponse)
     async def list_notifications(
         status: Optional[str] = None,
         timezone: Optional[str] = None,
@@ -78,32 +94,39 @@ class NotificationController:
         limit: int = Query(100, ge=1, le=1000),
         offset: int = Query(0, ge=0)
     ):
-        notifications = NotificationService.list_notifications(
-            status=status,
-            timezone=timezone,
-            recipient_id=recipient_id,
-            limit=limit,
-            offset=offset
-        )
-        
-        return {
-            'count': len(notifications),
-            'notifications': notifications
-        }
-    
-    @staticmethod
-    @notification_router.get("/metrics", response_model=Dict[str, Any])
-    async def get_metrics(
-        server_id: Optional[str] = None,
-        channel: Optional[str] = None,
-        time_period: Optional[int] = None
-    ):
-        metrics = NotificationService.get_metrics(
-            server_id=server_id,
-            channel=channel,
-            time_period=time_period
-        )
-        
-        return metrics
+        try:
+            notifications = NotificationService.list_notifications(
+                status=status,
+                timezone=timezone,
+                recipient_id=recipient_id,
+                limit=limit,
+                offset=offset
+            )
+            
+            return {
+                'count': len(notifications),
+                'notifications': notifications
+            }
+        except Exception as e:
+            logger.error(f"Error listing notifications: {str(e)}")
+            raise HTTPException(status_code=500, detail=str(e))
 
-notification_controller = NotificationController()
+class MetricsController:
+    @staticmethod
+    async def get_metrics(
+        server: Optional[str] = None,
+        channel: Optional[str] = None,
+        period: Optional[int] = None
+    ):
+        try:
+            metrics = NotificationService.get_metrics(
+                server_id=server,
+                channel=channel,
+                time_period=period
+            )
+            return metrics
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        except Exception as e:
+            logger.error(f"Error retrieving metrics: {str(e)}")
+            raise HTTPException(status_code=500, detail=str(e))

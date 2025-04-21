@@ -287,3 +287,4 @@ def cancel_notification(notification_id: str) -> bool:
         return True
     finally:
         session.close()
+
