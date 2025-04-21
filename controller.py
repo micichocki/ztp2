@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Optional
 from fastapi import HTTPException, Query, Depends
 
-from exception import NotificationNotFoundException, InvalidNotificationStateException
+from exception import NotificationNotFoundException, InvalidNotificationStateException, ValidationError
 from models import NotificationRequest
 from service import NotificationService
 import logging
@@ -19,13 +19,16 @@ class NotificationController:
     @staticmethod
     async def create_push_notification(request: NotificationRequest):
         try:
-            notification_id = NotificationService.schedule_push_notification(request)
+            task_id = NotificationService.schedule_push_notification(request)
             
             return {
-                'notification_id': notification_id,
+                'task_id': task_id,
                 'status': 'scheduled',
                 'message': 'Push notification scheduled'
             }
+        except ValidationError as e:
+            logger.warning(f"Validation error: {str(e)}")
+            raise HTTPException(status_code=400, detail=str(e))
         except Exception as e:
             logger.error(f"Error scheduling push notification: {str(e)}")
             raise HTTPException(status_code=500, detail=str(e))
@@ -33,13 +36,16 @@ class NotificationController:
     @staticmethod
     async def create_email_notification(request: NotificationRequest):
         try:
-            notification_id = NotificationService.schedule_email_notification(request)
+            task_id = NotificationService.schedule_email_notification(request)
             
             return {
-                'notification_id': notification_id,
+                'task_id': task_id,
                 'status': 'scheduled',
                 'message': 'Email notification scheduled'
             }
+        except ValidationError as e:
+            logger.warning(f"Validation error: {str(e)}")
+            raise HTTPException(status_code=400, detail=str(e))
         except Exception as e:
             logger.error(f"Error scheduling email notification: {str(e)}")
             raise HTTPException(status_code=500, detail=str(e))
@@ -130,3 +136,4 @@ class MetricsController:
         except Exception as e:
             logger.error(f"Error retrieving metrics: {str(e)}")
             raise HTTPException(status_code=500, detail=str(e))
+

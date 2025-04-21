@@ -1,17 +1,19 @@
+from exception import ValidationError
 from models import NotificationRequest
-from policy import TimezonePolicy
+from policy import TimeZonePolicy, TimeRangePolicy
 
 
 class NotificationValidator:
     def __init__(self, notification: NotificationRequest):
         self.notification = notification
         self.policies = [
-            TimezonePolicy(),
+            TimeZonePolicy(),
+            TimeRangePolicy(),
         ]
 
     def validate(self):
-        for policy in self.policies:
-            try:
+        try:
+            for policy in self.policies:
                 policy.validate(self.notification)
-            except ValueError as e:
-                raise ValueError(f"Validation failed: {e}")
+        except ValidationError as e:
+            raise ValidationError(f"Validation failed: {str(e)}")

@@ -1,4 +1,4 @@
-import sys
+import click
 import socket
 import threading
 import uvicorn
@@ -7,6 +7,7 @@ from typing import Optional
 
 from celery_app import app
 from service import NotificationService
+from models import DeliveryChannel
 
 
 def create_metrics_app(worker_type, port):
@@ -15,7 +16,7 @@ def create_metrics_app(worker_type, port):
         description=f"Metrics API for {worker_type} worker",
         version="1.0.0"
     )
-    
+
     @metrics_app.get("/metrics")
     def get_metrics(
         server: Optional[str] = None,
@@ -34,53 +35,51 @@ def create_metrics_app(worker_type, port):
 
     def run_server():
         uvicorn.run(metrics_app, host="0.0.0.0", port=port, log_level="error")
-    
+
     thread = threading.Thread(target=run_server, daemon=True)
     return thread
 
+class Worker:
 
-def start_push_worker():
-    worker = app.Worker(
-        hostname=f'push.worker.{socket.gethostname()}',
-        queues=['default'],
-        concurrency=1,
-        loglevel='INFO',
-        consumer_arguments={
-            'routing_key': 'push'
-        }
-    )
+    @staticmethod
+    def start_worker(channels=None):
+        """Start a worker that can process all notification types or specific channels"""
+        if channels is None:
+            channels = [ch.value for ch in DeliveryChannel]
+        
+        if isinstance(channels, str):
+            channels = [channels]
+        
+        worker_name = f'worker.{socket.gethostname()}'
+        
+        print(f"Starting worker {worker_name} for channels: {', '.join(channels)}")
+        
+        binding_keys = channels
+        
+        worker = app.Worker(
+            hostname=worker_name,
+            queues=['notifications'],
+            concurrency=1,
+            loglevel='INFO',
+            consumer_arguments={
+                'x-binding-key': binding_keys
+            }
+        )
 
-    from config import PUSH_METRICS_PORT
-    metrics_thread = create_metrics_app('push', PUSH_METRICS_PORT)
-    metrics_thread.start()
-    
-    worker.start()
+        from config import WORKER_METRICS_PORT
+        metrics_thread = create_metrics_app('worker', WORKER_METRICS_PORT)
+        metrics_thread.start()
+
+        worker.start()
 
 
-def start_email_worker():
-    worker = app.Worker(
-        hostname=f'email.worker.{socket.gethostname()}',
-        queues=['default'],
-        concurrency=1,
-        loglevel='INFO',
-        consumer_arguments={
-            'routing_key': 'email'
-        }
-    )
-
-    from config import EMAIL_METRICS_PORT
-    metrics_thread = create_metrics_app('email', EMAIL_METRICS_PORT)
-    metrics_thread.start()
-    
-    worker.start()
-
+@click.command()
+@click.argument('channels', nargs=-1, type=click.Choice(['push', 'email', 'all']))
+def main(channels):
+    if not channels or 'all' in channels:
+        Worker.start_worker()
+    else:
+        Worker.start_worker(channels)
 
 if __name__ == '__main__':
-    if len(sys.argv) != 2 or sys.argv[1] not in ('push', 'email'):
-        print("Usage: python workers.py [push|email]")
-        sys.exit(1)
-
-    if sys.argv[1] == 'push':
-        start_push_worker()
-    elif sys.argv[1] == 'email':
-        start_email_worker()
+    main()

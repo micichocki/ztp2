@@ -1,3 +1,4 @@
+import random
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta
 import pytz
@@ -21,13 +22,14 @@ class NotificationService:
     ) -> str:
         validator = NotificationValidator(notification)
         validator.validate()
-        return schedule_notification.delay(
+        task = schedule_notification.delay(
             recipient_id=notification.recipient_id,
             content=notification.content,
             channel=DeliveryChannel.PUSH,
             timezone=notification.timezone,
             scheduled_time=notification.scheduled_time
-        ).id
+        )
+        return task.id
 
     @staticmethod
     def schedule_email_notification(
@@ -35,13 +37,14 @@ class NotificationService:
     ) -> str:
         validator = NotificationValidator(notification)
         validator.validate()
-        return schedule_notification.delay(
+        task = schedule_notification.delay(
             recipient_id=notification.recipient_id,
             content=notification.content,
             channel=DeliveryChannel.EMAIL,
             timezone=notification.timezone,
             scheduled_time=notification.scheduled_time
-        ).id
+        )
+        return task.id
     
     @staticmethod
     def force_delivery(notification_id: str) -> Dict[str, Any]|None:
@@ -73,7 +76,7 @@ class NotificationService:
             session.close()
     
     @staticmethod
-    def cancel_notification(notification_id: str) -> Dict[str, Any]:
+    def cancel_notification(notification_id: str) -> Dict[str, Any]|None:
         """Cancel a scheduled notification"""
         session = db_session()
         try:
@@ -103,7 +106,7 @@ class NotificationService:
             session.close()
         
     @staticmethod
-    def get_notification_status(notification_id: str) -> Dict[str, Any]:
+    def get_notification_status(notification_id: str) -> Dict[str, Any]|None:
         session = db_session()
         try:
             notification = session.query(Notification).filter(Notification.id == notification_id).first()

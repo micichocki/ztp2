@@ -40,6 +40,7 @@ class Notification(Base):
     scheduled_time = Column(DateTime(timezone=True), nullable=False)
     status = Column(String, nullable=False)
     attempt_count = Column(Integer, nullable=False, default=0)
+    task_id = Column(String, nullable=True)
 
     def __init__(
         self, 
@@ -50,7 +51,8 @@ class Notification(Base):
         scheduled_time: Optional[str] = None, 
         id: Optional[str] = None, 
         status: NotificationStatus = NotificationStatus.SCHEDULED,
-        attempt_count: int = 0
+        attempt_count: int = 0,
+        task_id: Optional[str] = None  # Added task_id parameter
     ):
         current_time = datetime.now(pytz.UTC)
         scheduled_datetime = (
@@ -67,7 +69,8 @@ class Notification(Base):
             created_at=current_time,
             scheduled_time=scheduled_datetime,
             status=status,
-            attempt_count=attempt_count
+            attempt_count=attempt_count,
+            task_id=task_id  # Initialize task_id
         )
     
     @property

@@ -1,5 +1,9 @@
 version: '3.8'
 
+# Define default environment variables that can be overridden
+x-worker-scale: &worker-scale
+  WORKERS: ${WORKERS:-2}
+
 services:
   db:
     image: postgres:13
@@ -33,6 +37,19 @@ services:
       timeout: 5s
       retries: 5
 
+  initialize_db:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgresql://ztp2:ztp2@db:5432/ztp2
+    command: python init_db.py
+    volumes:
+      - .:/app
+
   api:
     build:
       context: .
@@ -42,6 +59,8 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
+      initialize_db:
+        condition: service_completed_successfully
     ports:
       - "5000:5000"
     environment:
@@ -59,6 +78,8 @@ services:
     depends_on:
       rabbitmq:
         condition: service_healthy
+      initialize_db:
+        condition: service_completed_successfully
     ports:
       - "5555:5555"
     environment:
@@ -68,7 +89,7 @@ services:
     volumes:
       - .:/app
 
-  push_worker:
+  worker:
     build:
       context: .
       dockerfile: Dockerfile
@@ -77,45 +98,20 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
+      initialize_db:
+        condition: service_completed_successfully
     environment:
       - DATABASE_URL=postgresql://ztp2:ztp2@db:5432/ztp2
       - CELERY_BROKER_URL=amqp://ztp2:ztp2@rabbitmq:5672//
       - CELERY_RESULT_BACKEND=db+postgresql://ztp2:ztp2@db:5432/ztp2
-    command: python workers.py push
-    ports:
-      - "5001:5001"
-    volumes:
-      - .:/app
-
-  email_worker:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    depends_on:
-      db:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
-    environment:
-      - DATABASE_URL=postgresql://ztp2:ztp2@db:5432/ztp2
-      - CELERY_BROKER_URL=amqp://ztp2:ztp2@rabbitmq:5672//
-      - CELERY_RESULT_BACKEND=db+postgresql://ztp2:ztp2@db:5432/ztp2
-    command: python workers.py email
-    ports:
-      - "5002:5002"
-    volumes:
-      - .:/app
-
-  initialize_db:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    depends_on:
-      db:
-        condition: service_healthy
-    environment:
-      - DATABASE_URL=postgresql://ztp2:ztp2@db:5432/ztp2
-    command: python init_db.py
+    command: python workers.py all
+    deploy:
+      replicas: ${WORKERS:-2}
+      endpoint_mode: dnsrr
+      update_config:
+        parallelism: 1
+        delay: 10s
+        order: start-first
     volumes:
       - .:/app
 

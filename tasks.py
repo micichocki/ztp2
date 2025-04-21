@@ -1,9 +1,11 @@
 import logging
 import random
 import pytz
+import sys
+import time
 from datetime import datetime
 from celery.exceptions import MaxRetriesExceededError
-from typing import Optional
+from typing import Optional, Callable, Union, Literal, Dict, Any
 
 from celery_app import app
 from models import Notification, NotificationStatus, DeliveryChannel, db_session
@@ -12,33 +14,72 @@ from metrics import metrics
 
 logger = logging.getLogger(__name__)
 
+
 class NotificationDeliveryService:
     """Service for handling notification delivery logic"""
     
     @staticmethod
     def deliver_push(notification: Notification) -> bool:
-        """Business logic for push notification delivery"""
+        """Attempt to deliver push notification with simulated processing time and 50% failure rate."""
         logger.info(f"Sending PUSH notification {notification.id} to {notification.recipient_id}")
+        print(f"\n🔔 PROCESSING: PUSH notification to {notification.recipient_id}: {notification.content}\n", 
+              file=sys.stdout, flush=True)
+        
+        # Simulate processing time (around 10 seconds)
+        processing_time = random.uniform(8.0, 12.0)
+        print(f"⏳ Processing will take approximately {processing_time:.2f} seconds...", 
+              file=sys.stdout, flush=True)
+        
+        # Show progress indicators during processing
+        for i in range(10):
+            time.sleep(processing_time / 10)
+            progress = (i + 1) * 10
+            print(f"⏳ Push processing: {progress}% complete", file=sys.stdout, flush=True)
         
         if random.random() < 0.5:
             return True
-        else:
-            raise Exception("Random delivery failure (50% chance)")
-    
+        raise Exception("Random delivery failure (50% chance)")
+
     @staticmethod
     def deliver_email(notification: Notification) -> bool:
-        """Business logic for email notification delivery"""
+        """Attempt to deliver email notification with simulated processing time and 50% failure rate."""
         logger.info(f"Sending EMAIL notification {notification.id} to {notification.recipient_id}")
+        print(f"\n📧 PROCESSING: EMAIL notification to {notification.recipient_id}: {notification.content}\n", 
+              file=sys.stdout, flush=True)
+        
+        # Simulate processing time (around 10 seconds)
+        processing_time = random.uniform(8.0, 12.0)
+        print(f"⏳ Processing will take approximately {processing_time:.2f} seconds...", 
+              file=sys.stdout, flush=True)
+        
+        # Show progress indicators during processing
+        for i in range(10):
+            time.sleep(processing_time / 10)
+            progress = (i + 1) * 10
+            print(f"⏳ Email processing: {progress}% complete", file=sys.stdout, flush=True)
         
         if random.random() < 0.5:
             return True
-        else:
-            raise Exception("Random delivery failure (50% chance)")
+        raise Exception("Random delivery failure (50% chance)")
+
+    @classmethod
+    def get_delivery_method(cls, channel: DeliveryChannel) -> Callable[[Notification], bool]:
+        delivery_methods = {
+            DeliveryChannel.PUSH: cls.deliver_push,
+            DeliveryChannel.EMAIL: cls.deliver_email,
+        }
+        
+        if channel not in delivery_methods:
+            raise ValueError(f"Unsupported channel: {channel}")
+        
+        return delivery_methods[channel]
 
 
-@app.task(bind=True, max_retries=MAX_RETRY_ATTEMPTS)
-def send_push_notification(self, notification_id: str) -> None|bool:
-    """Celery task for sending push notifications"""
+def _handle_notification_delivery(
+    task_instance: Any,
+    notification_id: str,
+    channel: DeliveryChannel
+) -> Optional[bool]:
     session = db_session()
     try:
         notification = session.query(Notification).filter(Notification.id == notification_id).first()
@@ -54,44 +95,45 @@ def send_push_notification(self, notification_id: str) -> None|bool:
         session.commit()
         
         metrics.record_notification(
-            server_id=self.request.hostname,
-            channel=DeliveryChannel.PUSH,
+            server_id=task_instance.request.hostname,
+            channel=channel,
             status=NotificationStatus.PROCESSING
         )
 
         try:
-            delivery_successful = NotificationDeliveryService.deliver_push(notification)
+            delivery_method = NotificationDeliveryService.get_delivery_method(channel)
+            delivery_successful = delivery_method(notification)
             
             if delivery_successful:
-                logger.info(f"Successfully delivered PUSH notification {notification_id}")
+                logger.info(f"Successfully delivered {channel.name} notification {notification_id}")
                 notification.status = NotificationStatus.DELIVERED
                 session.commit()
                 
                 metrics.record_notification(
-                    server_id=self.request.hostname,
-                    channel=DeliveryChannel.PUSH,
+                    server_id=task_instance.request.hostname,
+                    channel=channel,
                     status=NotificationStatus.DELIVERED
                 )
                 return True
-
+                
         except Exception as e:
             notification.status = NotificationStatus.FAILED
             notification.attempt_count += 1
             session.commit()
             
-            logger.error(f"Failed to deliver PUSH notification {notification_id}: {str(e)}")
+            logger.error(f"Failed to deliver {channel.name} notification {notification_id}: {str(e)}")
             
             metrics.record_notification(
-                server_id=self.request.hostname,
-                channel=DeliveryChannel.PUSH,
+                server_id=task_instance.request.hostname,
+                channel=channel,
                 status=NotificationStatus.FAILED
             )
 
             if notification.attempt_count < MAX_RETRY_ATTEMPTS:
-                logger.info(f"Retrying PUSH notification {notification_id}, attempt {notification.attempt_count}")
-                raise self.retry(exc=e, countdown=RETRY_DELAY)
+                logger.info(f"Retrying {channel.name} notification {notification_id}, attempt {notification.attempt_count}")
+                raise task_instance.retry(exc=e, countdown=RETRY_DELAY)
             else:
-                logger.error(f"Max retries exceeded for PUSH notification {notification_id}")
+                logger.error(f"Max retries exceeded for {channel.name} notification {notification_id}")
                 raise MaxRetriesExceededError()
         
         return False
@@ -101,67 +143,13 @@ def send_push_notification(self, notification_id: str) -> None|bool:
 
 
 @app.task(bind=True, max_retries=MAX_RETRY_ATTEMPTS)
-def send_email_notification(self, notification_id: str) -> None|bool:
-    """Celery task for sending email notifications"""
-    session = db_session()
-    try:
-        notification = session.query(Notification).filter(Notification.id == notification_id).first()
-        if not notification:
-            logger.error(f"Notification {notification_id} not found")
-            return False
+def send_push_notification(self, notification_id: str) -> Optional[bool]:
+    return _handle_notification_delivery(self, notification_id, DeliveryChannel.PUSH)
 
-        if notification.status == NotificationStatus.CANCELLED:
-            logger.info(f"Notification {notification_id} has been cancelled, skipping delivery")
-            return False
 
-        notification.status = NotificationStatus.PROCESSING
-        session.commit()
-        
-        metrics.record_notification(
-            server_id=self.request.hostname,
-            channel=DeliveryChannel.EMAIL,
-            status=NotificationStatus.PROCESSING
-        )
-
-        try:
-            delivery_successful = NotificationDeliveryService.deliver_email(notification)
-            
-            if delivery_successful:
-                logger.info(f"Successfully delivered EMAIL notification {notification_id}")
-                notification.status = NotificationStatus.DELIVERED
-                session.commit()
-                
-                metrics.record_notification(
-                    server_id=self.request.hostname,
-                    channel=DeliveryChannel.EMAIL,
-                    status=NotificationStatus.DELIVERED
-                )
-                return True
-                
-        except Exception as e:
-            notification.status = NotificationStatus.FAILED
-            notification.attempt_count += 1
-            session.commit()
-            
-            logger.error(f"Failed to deliver EMAIL notification {notification_id}: {str(e)}")
-            
-            metrics.record_notification(
-                server_id=self.request.hostname,
-                channel=DeliveryChannel.EMAIL,
-                status=NotificationStatus.FAILED
-            )
-
-            if notification.attempt_count < MAX_RETRY_ATTEMPTS:
-                logger.info(f"Retrying EMAIL notification {notification_id}, attempt {notification.attempt_count}")
-                raise self.retry(exc=e, countdown=RETRY_DELAY)
-            else:
-                logger.error(f"Max retries exceeded for EMAIL notification {notification_id}")
-                raise MaxRetriesExceededError()
-        
-        return False
-        
-    finally:
-        session.close()
+@app.task(bind=True, max_retries=MAX_RETRY_ATTEMPTS)
+def send_email_notification(self, notification_id: str) -> Optional[bool]:
+    return _handle_notification_delivery(self, notification_id, DeliveryChannel.EMAIL)
 
 
 @app.task
@@ -171,7 +159,7 @@ def schedule_notification(
         channel: DeliveryChannel,
         timezone: str = "UTC",
         scheduled_time: Optional[str] = None
-) -> str|bool|None:
+) -> Optional[Union[str, bool]]:
     notification = Notification(
         recipient_id=recipient_id,
         content=content,
@@ -189,8 +177,11 @@ def schedule_notification(
         
         logger.info(f"Created notification {notification_id} for delivery via {channel}")
 
+        server_id = getattr(app, 'current_worker', None)
+        server_id = server_id.hostname if server_id else 'scheduler'
+        
         metrics.record_notification(
-            server_id=app.current_worker.hostname if hasattr(app, 'current_worker') else 'scheduler',
+            server_id=server_id,
             channel=channel,
             status=NotificationStatus.SCHEDULED
         )
@@ -204,22 +195,30 @@ def schedule_notification(
         else:
             scheduled_dt = datetime.now(pytz.UTC)
 
-        if channel == DeliveryChannel.PUSH:
-            task = send_push_notification
-        elif channel == DeliveryChannel.EMAIL:
-            task = send_email_notification
-        else:
+        channel_tasks = {
+            DeliveryChannel.PUSH: send_push_notification,
+            DeliveryChannel.EMAIL: send_email_notification,
+        }
+        
+        if channel not in channel_tasks:
             logger.error(f"Unsupported channel: {channel}")
             return False
 
-        task.apply_async(
+        # Send to the appropriate channel with correct routing key
+        task = channel_tasks[channel].apply_async(
             args=[notification_id],
             eta=scheduled_dt,
+            queue='notifications',
             routing_key=channel
         )
+        
+        # Store the task_id in the notification record
+        notification.task_id = task.id
+        session.commit()
+        logger.info(f"Stored task ID {task.id} for notification {notification_id}")
 
-        logger.info(f"Scheduled notification {notification_id} for delivery at {scheduled_dt}")
-        return notification_id
+        logger.info(f"Scheduled notification {notification_id} with task {task.id} for delivery at {scheduled_dt}")
+        return task.id
     except Exception as e:
         session.rollback()
         logger.error(f"Error scheduling notification: {str(e)}")
@@ -228,40 +227,108 @@ def schedule_notification(
         session.close()
 
 
+def revoke_task(task_id: str) -> bool:
+    """Revoke a scheduled task in Celery queue"""
+    if not task_id:
+        logger.warning("No task ID provided for revocation")
+        return False
+    
+    try:
+        # Use terminate=True to forcefully terminate the task if it's running
+        # Use signal='SIGKILL' for more aggressive termination if needed
+        # Use destination=None to broadcast to all workers
+        app.control.revoke(
+            task_id, 
+            terminate=True, 
+            signal='SIGTERM', 
+            destination=None
+        )
+        
+        # Force immediate task removal from the queue
+        inspector = app.control.inspect()
+        reserved_tasks = inspector.reserved()
+        scheduled_tasks = inspector.scheduled()
+        
+        if reserved_tasks:
+            for worker, tasks in reserved_tasks.items():
+                for task in tasks:
+                    if task['id'] == task_id:
+                        logger.info(f"Found reserved task {task_id} on worker {worker}, forcing removal")
+                        app.control.terminate(task_id, signal='SIGKILL')
+        
+        if scheduled_tasks:
+            for worker, tasks in scheduled_tasks.items():
+                for task in tasks:
+                    if task['id'] == task_id:
+                        logger.info(f"Found scheduled task {task_id} on worker {worker}, forcing removal")
+                        app.control.terminate(task_id, signal='SIGKILL')
+        
+        logger.info(f"Revoked task {task_id}")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to revoke task {task_id}: {str(e)}")
+        return False
+
+
 @app.task
-def force_immediate_delivery(notification_id: str) -> None|bool:
-    """Force immediate delivery of a notification"""
+def force_immediate_delivery(notification_id: str) -> Optional[bool]:
     session = db_session()
     try:
         notification = session.query(Notification).filter(Notification.id == notification_id).first()
         if not notification:
             logger.error(f"Notification {notification_id} not found")
             return False
-        
+
         if notification.status != NotificationStatus.SCHEDULED:
             logger.warning(f"Cannot force delivery for notification {notification_id} with status {notification.status}")
             return False
-        
-        logger.info(f"Forcing immediate delivery of notification {notification_id}")
-        
-        channel = notification.channel
-        
-        if channel == DeliveryChannel.PUSH:
-            send_push_notification.apply_async(args=[notification_id], countdown=0)
-        elif channel == DeliveryChannel.EMAIL:
-            send_email_notification.apply_async(args=[notification_id], countdown=0)
+
+        # Cancel the existing scheduled task if it exists
+        original_task_id = notification.task_id
+        if original_task_id:
+            logger.info(f"Revoking existing task {original_task_id} for notification {notification_id}")
+            if not revoke_task(original_task_id):
+                logger.warning(f"Failed to revoke task {original_task_id}, proceeding with immediate delivery anyway")
         else:
+            logger.warning(f"No task ID found for notification {notification_id}")
+        
+        notification.status = NotificationStatus.PROCESSING
+        session.commit()
+
+        logger.info(f"Forcing immediate delivery of notification {notification_id}")
+
+        channel = notification.channel
+        channel_tasks = {
+            DeliveryChannel.PUSH: send_push_notification,
+            DeliveryChannel.EMAIL: send_email_notification,
+        }
+
+        if channel not in channel_tasks:
             logger.error(f"Unsupported channel: {channel}")
             return False
+
+        task = channel_tasks[channel].apply_async(
+            args=[notification_id], 
+            countdown=0,
+            queue='notifications',
+            routing_key=channel
+        )
+        
+        notification.task_id = task.id
+        session.commit()
+        logger.info(f"Updated notification {notification_id} with new task ID {task.id}")
         
         return True
+    except Exception as e:
+        session.rollback()
+        logger.error(f"Error forcing immediate delivery: {str(e)}")
+        raise
     finally:
         session.close()
 
 
 @app.task
-def cancel_notification(notification_id: str) -> bool:
-    """Cancel a scheduled notification"""
+def cancel_notification(notification_id: str) -> Optional[bool]:
     session = db_session()
     try:
         notification = session.query(Notification).filter(Notification.id == notification_id).first()
@@ -273,13 +340,33 @@ def cancel_notification(notification_id: str) -> bool:
             logger.warning(f"Cannot cancel notification {notification_id} with status {notification.status}")
             return False
         
+        # Revoke the original task if it exists
+        original_task_id = notification.task_id
+        if original_task_id:
+            logger.info(f"Revoking task {original_task_id} for cancelled notification {notification_id}")
+            if not revoke_task(original_task_id):
+                logger.warning(f"Failed to revoke task {original_task_id} directly, trying alternative methods")
+                
+                # Try alternative revocation method
+                try:
+                    task = app.AsyncResult(original_task_id)
+                    task.revoke(terminate=True, signal='SIGKILL')
+                    logger.info(f"Revoked task {original_task_id} through AsyncResult")
+                except Exception as e:
+                    logger.error(f"Alternative revocation also failed: {str(e)}")
+        else:
+            logger.warning(f"No task ID found for notification {notification_id} to cancel")
+        
         notification.status = NotificationStatus.CANCELLED
         session.commit()
         
         logger.info(f"Cancelled notification {notification_id}")
         
+        server_id = getattr(app, 'current_worker', None)
+        server_id = server_id.hostname if server_id else 'scheduler'
+        
         metrics.record_notification(
-            server_id=app.current_worker.hostname if hasattr(app, 'current_worker') else 'scheduler',
+            server_id=server_id,
             channel=notification.channel,
             status=NotificationStatus.CANCELLED
         )
