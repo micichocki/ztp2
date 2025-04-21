@@ -1,0 +1,10 @@
+celery>=5.2.0
+redis>=4.0.0
+pytz>=2022.1
+flower>=1.0.0
+config~=0.5.1
+SQLAlchemy~=2.0.40
+pydantic~=2.11.3
+psycopg2~=2.9.10
+uvicorn~=0.34.2
+fastapi~=0.115.12

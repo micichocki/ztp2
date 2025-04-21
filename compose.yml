@@ -1,0 +1,124 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:13
+    environment:
+      POSTGRES_USER: ztp2
+      POSTGRES_PASSWORD: ztp2
+      POSTGRES_DB: ztp2
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ztp2"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: ztp2
+      RABBITMQ_DEFAULT_PASS: ztp2
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmqctl", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    ports:
+      - "5000:5000"
+    environment:
+      - DATABASE_URL=postgresql://ztp2:ztp2@db:5432/ztp2
+      - CELERY_BROKER_URL=amqp://ztp2:ztp2@rabbitmq:5672//
+      - CELERY_RESULT_BACKEND=db+postgresql://ztp2:ztp2@db:5432/ztp2
+    command: python app.py
+    volumes:
+      - .:/app
+
+  flower:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    ports:
+      - "5555:5555"
+    environment:
+      - CELERY_BROKER_URL=amqp://ztp2:ztp2@rabbitmq:5672//
+      - CELERY_RESULT_BACKEND=db+postgresql://ztp2:ztp2@db:5432/ztp2
+    command: celery -A tasks flower --port=5555 --address=0.0.0.0
+    volumes:
+      - .:/app
+
+  push_worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgresql://ztp2:ztp2@db:5432/ztp2
+      - CELERY_BROKER_URL=amqp://ztp2:ztp2@rabbitmq:5672//
+      - CELERY_RESULT_BACKEND=db+postgresql://ztp2:ztp2@db:5432/ztp2
+    command: python workers.py push
+    ports:
+      - "5001:5001"
+    volumes:
+      - .:/app
+
+  email_worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgresql://ztp2:ztp2@db:5432/ztp2
+      - CELERY_BROKER_URL=amqp://ztp2:ztp2@rabbitmq:5672//
+      - CELERY_RESULT_BACKEND=db+postgresql://ztp2:ztp2@db:5432/ztp2
+    command: python workers.py email
+    ports:
+      - "5002:5002"
+    volumes:
+      - .:/app
+
+  initialize_db:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgresql://ztp2:ztp2@db:5432/ztp2
+    command: python init_db.py
+    volumes:
+      - .:/app
+
+volumes:
+  postgres_data:
+  rabbitmq_data:
