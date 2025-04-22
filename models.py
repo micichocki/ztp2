@@ -41,7 +41,7 @@ class Notification(Base):
     status = Column(String, nullable=False)
     attempt_count = Column(Integer, nullable=False, default=0)
     task_id = Column(String, nullable=True)
-    priority = Column(Integer, nullable=False, default=5)  # Add priority field
+    priority = Column(Integer, nullable=False, default=5)
 
     def __init__(
         self, 
@@ -54,7 +54,7 @@ class Notification(Base):
         status: NotificationStatus = NotificationStatus.SCHEDULED,
         attempt_count: int = 0,
         task_id: Optional[str] = None,
-        priority: int = 5  # Default priority
+        priority: int = 5
     ):
         current_time = datetime.now(pytz.UTC)
         scheduled_datetime = (

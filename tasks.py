@@ -2,13 +2,14 @@ import logging
 import random
 import pytz
 import time
-from datetime import datetime
+import socket
+from datetime import datetime, timedelta
 from celery.exceptions import MaxRetriesExceededError
 from typing import Optional, Callable, Union, Any
 
 from celery_app import app
 from models import Notification, NotificationStatus, DeliveryChannel, db_session
-from config import MAX_RETRY_ATTEMPTS, RETRY_DELAY
+from config import MAX_RETRY_ATTEMPTS, RETRY_DELAY, APPROPRIATE_HOURS_START, APPROPRIATE_HOURS_END
 from metrics import metrics
 
 logger = logging.getLogger(__name__)
@@ -20,7 +21,7 @@ class NotificationDeliveryService:
     def deliver_notification(notification: Notification, channel: DeliveryChannel) -> bool:
         logger.info(f"Sending {channel.name} notification {notification.id} to {notification.recipient_id}")
 
-        processing_time = random.uniform(8.0, 12.0)
+        processing_time = random.uniform(5.0, 8.0)
         for i in range(10):
             time.sleep(processing_time / 10)
             logger.info("Processing...")
@@ -54,12 +55,6 @@ def _handle_notification_delivery(
 
         notification.status = NotificationStatus.PROCESSING
         session.commit()
-        
-        metrics.record_notification(
-            server_id=task_instance.request.hostname,
-            channel=channel,
-            status=NotificationStatus.PROCESSING
-        )
 
         try:
             delivery_method = NotificationDeliveryService.get_delivery_method(channel)
@@ -69,12 +64,6 @@ def _handle_notification_delivery(
                 logger.info(f"Successfully delivered {channel.name} notification {notification_id} content: {notification.content}")
                 notification.status = NotificationStatus.DELIVERED
                 session.commit()
-                
-                metrics.record_notification(
-                    server_id=task_instance.request.hostname,
-                    channel=channel,
-                    status=NotificationStatus.DELIVERED
-                )
                 return True
                 
         except Exception as e:
@@ -83,12 +72,7 @@ def _handle_notification_delivery(
             session.commit()
             
             logger.error(f"Failed to deliver {channel.name} notification {notification_id}: {str(e)}")
-            
-            metrics.record_notification(
-                server_id=task_instance.request.hostname,
-                channel=channel,
-                status=NotificationStatus.FAILED
-            )
+
 
             if notification.attempt_count < MAX_RETRY_ATTEMPTS:
                 logger.info(f"Retrying {channel.name} notification {notification_id}, attempt {notification.attempt_count}")
@@ -111,6 +95,43 @@ def send_push_notification(self, notification_id: str) -> Optional[bool]:
 @app.task(bind=True, max_retries=MAX_RETRY_ATTEMPTS)
 def send_email_notification(self, notification_id: str) -> Optional[bool]:
     return _handle_notification_delivery(self, notification_id, DeliveryChannel.EMAIL)
+
+
+def is_within_appropriate_hours(dt: datetime, timezone_str: str) -> bool:
+    if dt.tzinfo is None:
+        dt = pytz.UTC.localize(dt)
+    
+    local_tz = pytz.timezone(timezone_str)
+    local_dt = dt.astimezone(local_tz)
+    
+    local_hour = local_dt.hour
+    
+    logger.info(f"Checking if {local_dt.isoformat()} (hour: {local_hour}) is within appropriate hours "
+                f"({APPROPRIATE_HOURS_START}-{APPROPRIATE_HOURS_END}) in timezone {timezone_str}")
+    
+    return APPROPRIATE_HOURS_START <= local_hour < APPROPRIATE_HOURS_END
+
+
+def get_next_appropriate_time(dt: datetime, timezone_str: str) -> datetime:
+    if dt.tzinfo is None:
+        dt = pytz.UTC.localize(dt)
+    
+    local_tz = pytz.timezone(timezone_str)
+    local_dt = dt.astimezone(local_tz)
+    
+    logger.info(f"Finding next appropriate time for {local_dt.isoformat()} in timezone {timezone_str}")
+    
+    if local_dt.hour >= APPROPRIATE_HOURS_END or local_dt.hour < APPROPRIATE_HOURS_START:
+        if local_dt.hour >= APPROPRIATE_HOURS_END:
+            local_dt = local_dt + timedelta(days=1)
+            logger.info(f"After hours: adding a day to schedule for tomorrow")
+        
+        local_dt = local_dt.replace(hour=APPROPRIATE_HOURS_START, minute=0, second=0, microsecond=0)
+        logger.info(f"Adjusted to appropriate hours start: {local_dt.isoformat()}")
+    
+    utc_dt = local_dt.astimezone(pytz.UTC)
+    logger.info(f"Next appropriate time in UTC: {utc_dt.isoformat()}")
+    return utc_dt
 
 
 @app.task
@@ -137,24 +158,28 @@ def schedule_notification(
         session.commit()
         
         logger.info(f"Created notification {notification_id} for delivery via {channel}")
-
-        server_id = getattr(app, 'current_worker', None)
-        server_id = server_id.hostname if server_id else 'scheduler'
-        
-        metrics.record_notification(
-            server_id=server_id,
-            channel=channel,
-            status=NotificationStatus.SCHEDULED
-        )
-
         if scheduled_time:
-            local_tz = pytz.timezone(timezone)
             dt = datetime.fromisoformat(scheduled_time)
             if dt.tzinfo is None:
+                local_tz = pytz.timezone(timezone)
                 dt = local_tz.localize(dt)
-            scheduled_dt = dt.astimezone(pytz.UTC)
+                logger.info(f"Localized naive datetime to {timezone}: {dt.isoformat()}")
+            scheduled_dt = dt
+            logger.info(f"Processing notification with explicit scheduled time: {scheduled_dt.isoformat()}")
         else:
             scheduled_dt = datetime.now(pytz.UTC)
+            logger.info(f"No scheduled time provided, using current time: {scheduled_dt.isoformat()}")
+        
+        if not is_within_appropriate_hours(scheduled_dt, timezone):
+            logger.info(f"Scheduled time {scheduled_dt.isoformat()} is outside appropriate hours "
+                        f"({APPROPRIATE_HOURS_START}-{APPROPRIATE_HOURS_END}) in timezone {timezone}")
+            
+            scheduled_dt = get_next_appropriate_time(scheduled_dt, timezone)
+            
+            notification.scheduled_time = scheduled_dt
+            session.commit()
+            
+            logger.info(f"Notification {notification_id} rescheduled for {scheduled_dt.isoformat()}")
 
         channel_tasks = {
             DeliveryChannel.PUSH: send_push_notification,
@@ -175,7 +200,7 @@ def schedule_notification(
         session.commit()
         logger.info(f"Stored task ID {task.id} for notification {notification_id}")
 
-        logger.info(f"Scheduled notification {notification_id} with task {task.id} for delivery at {scheduled_dt}")
+        logger.info(f"Scheduled notification {notification_id} with task {task.id} for delivery at {scheduled_dt.isoformat()}")
         return task.id
     except Exception as e:
         session.rollback()
@@ -292,16 +317,7 @@ def cancel_notification(notification_id: str) -> Optional[bool]:
         session.commit()
         
         logger.info(f"Cancelled notification {notification_id}")
-        
-        server_id = getattr(app, 'current_worker', None)
-        server_id = server_id.hostname if server_id else 'scheduler'
-        
-        metrics.record_notification(
-            server_id=server_id,
-            channel=notification.channel,
-            status=NotificationStatus.CANCELLED
-        )
-        
+
         return True
     finally:
         session.close()

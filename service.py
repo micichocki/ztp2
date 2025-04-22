@@ -1,6 +1,7 @@
 import random
 from typing import Optional, List, Dict, Any
 import logging
+from datetime import datetime
 
 from exception import NotificationNotFoundException, InvalidNotificationStateException
 from models import DeliveryChannel, Notification, NotificationStatus, db_session, NotificationRequest
@@ -169,7 +170,30 @@ class NotificationService:
     @staticmethod
     def get_metrics(
         server_id: Optional[str] = None,
-        channel: Optional[str] = None
+        channel: Optional[str] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None
     ) -> Dict[str, Any]:
-        return metrics.get_metrics(server_id, channel)
+        start_datetime = None
+        end_datetime = None
+        
+        if start_date:
+            try:
+                start_datetime = datetime.fromisoformat(start_date)
+            except ValueError:
+                logger.warning(f"Invalid start_date format: {start_date}, expected ISO format")
+        
+        if end_date:
+            try:
+                end_datetime = datetime.fromisoformat(end_date)
+            except ValueError:
+                logger.warning(f"Invalid end_date format: {end_date}, expected ISO format")
+        
+        return metrics.get_metrics(
+            server_id=server_id, 
+            channel=channel,
+            start_date=start_datetime,
+            end_date=end_datetime
+        )
+
 

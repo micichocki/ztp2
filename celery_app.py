@@ -1,6 +1,7 @@
 from celery import Celery
 from celery.signals import worker_ready, worker_shutdown
 from config import CELERY_BROKER_URL, CELERY_RESULT_BACKEND, METRICS_ENABLED
+from kombu import Exchange, Queue
 import logging
 
 logger = logging.getLogger(__name__)
@@ -31,17 +32,3 @@ app.conf.update(
     task_inherit_parent_priority=True,
     worker_log_color=True,
 )
-
-if METRICS_ENABLED:
-    @worker_ready.connect
-    def capture_worker_ready(**kwargs):
-        worker = kwargs.get('sender')
-        if worker:
-            app.current_worker = worker
-            logger.info(f"Worker {worker.hostname} is ready")
-
-    @worker_shutdown.connect
-    def capture_worker_shutdown(**kwargs):
-        if hasattr(app, 'current_worker'):
-            logger.info(f"Worker {app.current_worker.hostname} is shutting down")
-            delattr(app, 'current_worker')
