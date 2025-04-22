@@ -96,14 +96,12 @@ class MetricsController:
     @staticmethod
     async def get_metrics(
         server: Optional[str] = None,
-        channel: Optional[str] = None,
         start_date: Optional[str] = None,
         end_date: Optional[str] = None
     ):
         try:
             metrics = NotificationService.get_metrics(
                 server_id=server,
-                channel=channel,
                 start_date=start_date,
                 end_date=end_date
             )
@@ -113,4 +111,3 @@ class MetricsController:
         except Exception as e:
             logger.error(f"Error retrieving metrics: {str(e)}")
             raise HTTPException(status_code=500, detail=str(e))
-

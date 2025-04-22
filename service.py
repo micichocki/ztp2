@@ -128,7 +128,6 @@ class NotificationService:
     @staticmethod
     def get_metrics(
         server_id: Optional[str] = None,
-        channel: Optional[str] = None,
         start_date: Optional[str] = None,
         end_date: Optional[str] = None
     ) -> Dict[str, Any]:
@@ -149,7 +148,7 @@ class NotificationService:
         metrics = MetricsCollector()
         return metrics.get_metrics(
             server_id=server_id, 
-            channel=channel,
             start_date=start_datetime,
             end_date=end_datetime
         )
+

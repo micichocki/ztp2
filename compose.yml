@@ -81,7 +81,7 @@ services:
       - CELERY_RESULT_BACKEND=db+postgresql://ztp2:ztp2@db:5432/ztp2
     command: python workers.py
     deploy:
-      replicas: ${WORKERS:-1}
+      replicas: ${WORKERS:-2}
       endpoint_mode: dnsrr
       update_config:
         parallelism: 1
