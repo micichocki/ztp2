@@ -7,7 +7,7 @@ from exceptions.exception import NotificationNotFoundException, InvalidNotificat
 from models import DeliveryChannel, Notification, NotificationStatus, db_session, NotificationRequest
 from validators.notification_validator import NotificationValidator
 from tasks import schedule_notification, force_immediate_delivery, cancel_notification
-from metrics import metrics
+from metrics import MetricsCollector
 
 logger = logging.getLogger(__name__)
 
@@ -146,7 +146,7 @@ class NotificationService:
                 end_datetime = datetime.fromisoformat(end_date)
             except ValueError:
                 logger.warning(f"Invalid end_date format: {end_date}, expected ISO format")
-        
+        metrics = MetricsCollector()
         return metrics.get_metrics(
             server_id=server_id, 
             channel=channel,

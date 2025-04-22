@@ -103,5 +103,3 @@ class MetricsCollector:
             logger.error(f"Error collecting metrics: {e}")
 
         return result
-
-metrics = MetricsCollector()
