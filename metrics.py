@@ -62,17 +62,6 @@ class MetricsCollector:
                 if worker_id in active_tasks:
                     server_data["active_tasks"] = len(active_tasks[worker_id])
 
-                if worker_id in self._stats_records and (start_date or end_date):
-                    filtered_records = self._stats_records[worker_id]
-                    
-                    if start_date or end_date:
-                        filtered_records = [
-                            record for record in filtered_records
-                            if (not start_date or record["timestamp"] >= start_date) and
-                               (not end_date or record["timestamp"] <= end_date)
-                        ]
-                    
-
                 result["servers"][worker_id] = server_data
 
         except Exception as e:
