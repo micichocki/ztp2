@@ -1,7 +1,6 @@
 from celery import Celery
-from celery.signals import worker_ready, worker_shutdown
-from config import CELERY_BROKER_URL, CELERY_RESULT_BACKEND, METRICS_ENABLED
-from kombu import Exchange, Queue
+from config import CELERY_BROKER_URL, CELERY_RESULT_BACKEND
+
 import logging
 
 logger = logging.getLogger(__name__)

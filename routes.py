@@ -1,3 +1,5 @@
+from typing import List
+
 from fastapi import APIRouter
 from controller import NotificationController, MetricsController
 from models import NotificationResponse, NotificationListResponse, ScheduleResponse, ActionResponse
@@ -10,7 +12,7 @@ metrics_router = APIRouter(prefix="/metrics", tags=["Metrics"])
 notification_router.add_api_route("/push", NotificationController.create_push_notification, methods=["POST"], status_code=201, response_model=ScheduleResponse)
 notification_router.add_api_route("/email", NotificationController.create_email_notification, methods=["POST"], status_code=201, response_model=ScheduleResponse)
 notification_router.add_api_route("/{notification_id}", NotificationController.get_notification, methods=["GET"], response_model=NotificationResponse)
-notification_router.add_api_route("/", NotificationController.list_notifications, methods=["GET"], response_model=NotificationListResponse)
+notification_router.add_api_route("/", NotificationController.list_notifications, methods=["GET"], response_model=List[NotificationResponse])
 notification_router.add_api_route("/{notification_id}/force", NotificationController.force_notification_delivery, methods=["POST"], response_model=ActionResponse)
 notification_router.add_api_route("/{notification_id}/cancel", NotificationController.cancel_notification, methods=["POST"], response_model=ActionResponse)
 

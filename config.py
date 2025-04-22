@@ -1,6 +1,6 @@
 import os
 
-MAX_RETRY_ATTEMPTS = 1
+MAX_RETRY_ATTEMPTS = 3
 RETRY_DELAY = 1
 
 DATABASE_URL = os.environ.get('DATABASE_URL', 'postgresql://ztp2:ztp2@localhost:5432/ztp2')

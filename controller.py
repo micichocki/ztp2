@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, List
 from fastapi import HTTPException
 
 from exception import NotificationNotFoundException, InvalidNotificationStateException, ValidationError
@@ -85,15 +85,9 @@ class NotificationController:
             raise HTTPException(status_code=500, detail=str(e))
     
     @staticmethod
-    async def list_notifications() -> NotificationListResponse:
+    async def list_notifications() -> List[Notification]:
         try:
-            notifications = NotificationService.list_notifications()
-            notification_responses = [NotificationResponse(**notification) for notification in notifications]
-
-            return NotificationListResponse(
-                count=len(notification_responses),
-                notifications=notification_responses
-            )
+            return NotificationService.list_notifications()
         except Exception as e:
             logger.error(f"Error listing notifications: {str(e)}")
             raise HTTPException(status_code=500, detail=str(e))

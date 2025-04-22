@@ -22,148 +22,106 @@ class NotificationService:
         return actual_priority
 
     @staticmethod
-    def schedule_push_notification(
+    def _schedule_notification(
         notification: NotificationRequest,
+        channel: DeliveryChannel
     ) -> str:
         validator = NotificationValidator(notification)
         validator.validate()
 
         actual_priority = NotificationService._calculate_probabilistic_priority(notification.priority)
-        
+
         task = schedule_notification.apply_async(
             args=[
                 notification.recipient_id,
                 notification.content,
-                DeliveryChannel.PUSH,
+                channel,
                 notification.timezone,
                 notification.scheduled_time
             ],
-            priority=actual_priority
+            priority=actual_priority,
         )
         return task.id
+
+    @staticmethod
+    def schedule_push_notification(
+        notification: NotificationRequest,
+    ) -> str:
+        return NotificationService._schedule_notification(notification, DeliveryChannel.PUSH)
 
     @staticmethod
     def schedule_email_notification(
      notification: NotificationRequest,
     ) -> str:
-        validator = NotificationValidator(notification)
-        validator.validate()
-        
-        actual_priority = NotificationService._calculate_probabilistic_priority(notification.priority)
-        
-        task = schedule_notification.apply_async(
-            args=[
-                notification.recipient_id,
-                notification.content,
-                DeliveryChannel.EMAIL,
-                notification.timezone,
-                notification.scheduled_time
-            ],
-            priority=actual_priority
-        )
-        return task.id
+        return NotificationService._schedule_notification(notification, DeliveryChannel.EMAIL)
 
     @staticmethod
-    def force_delivery(notification_id: str) -> Dict[str, Any]|None:
+    def _get_notification_or_raise(notification_id: str, expected_status: Optional[NotificationStatus] = None) -> Notification|None:
         session = db_session()
         try:
             notification = session.query(Notification).filter(Notification.id == notification_id).first()
             if not notification:
-                logger.warning(f"Force delivery attempt for non-existent notification: {notification_id}")
+                logger.warning(f"Request for non-existent notification: {notification_id}")
                 raise NotificationNotFoundException(f"Notification not found: {notification_id}")
 
-            if notification.status != NotificationStatus.SCHEDULED:
+            if expected_status and notification.status != expected_status:
                 logger.warning(
-                    f"Cannot force delivery for notification {notification_id} with status {notification.status}"
+                    f"Invalid status for notification {notification_id}: expected {expected_status}, got {notification.status}"
                 )
                 raise InvalidNotificationStateException(
-                    f"Cannot force delivery for notification with status {notification.status}"
+                    f"Cannot perform operation on notification with status {notification.status}"
                 )
 
-            logger.info(f"Forcing immediate delivery of notification {notification_id}")
-            result = force_immediate_delivery.delay(notification_id)
-
-            return {
-                "status": "success",
-                "message": "Notification delivery forced",
-                "notification_id": notification_id,
-                "task_id": result.id
-            }
-        finally:
-            session.close()
-
-    @staticmethod
-    def cancel_notification(notification_id: str) -> Dict[str, Any]|None:
-        session = db_session()
-        try:
-            notification = session.query(Notification).filter(Notification.id == notification_id).first()
-            if not notification:
-                logger.warning(f"Cancel attempt for non-existent notification: {notification_id}")
-                raise NotificationNotFoundException(f"Notification not found: {notification_id}")
-
-            if notification.status != NotificationStatus.SCHEDULED:
-                logger.warning(
-                    f"Cannot cancel notification {notification_id} with status {notification.status}"
-                )
-                raise InvalidNotificationStateException(
-                    f"Cannot cancel notification with status {notification.status}"
-                )
-
-            logger.info(f"Cancelling scheduled notification {notification_id}")
-            result = cancel_notification.delay(notification_id)
-
-            return {
-                "status": "success",
-                "message": "Notification cancelled",
-                "notification_id": notification_id,
-                "task_id": result.id
-            }
-        finally:
-            session.close()
-
-    @staticmethod
-    def get_notification(notification_id: str) -> Notification|None:
-        session = db_session()
-        try:
-            notification = session.query(Notification).filter(Notification.id == notification_id).first()
-            if not notification:
-                logger.warning(f"Status request for non-existent notification: {notification_id}")
-                raise NotificationNotFoundException(f"Notification not found: {notification_id}")
             return notification
         finally:
             session.close()
 
     @staticmethod
-    def list_notifications() -> List[Dict[str, Any]]|None:
+    def force_delivery(notification_id: str) -> Dict[str, Any]|None:
+        notification = NotificationService._get_notification_or_raise(
+            notification_id,
+            expected_status=NotificationStatus.SCHEDULED
+        )
+
+        logger.info(f"Forcing immediate delivery of notification {notification.id}")
+        result = force_immediate_delivery.delay(notification.id)
+
+        return {
+            "status": "success",
+            "message": "Notification delivery forced",
+            "notification_id": notification_id,
+            "task_id": result.id
+        }
+
+    @staticmethod
+    def cancel_notification(notification_id: str) -> Dict[str, Any]|None:
+        notification = NotificationService._get_notification_or_raise(
+            notification_id,
+            expected_status=NotificationStatus.SCHEDULED
+        )
+
+        logger.info(f"Cancelling scheduled notification {notification.id}")
+        result = cancel_notification.delay(notification.id)
+
+        return {
+            "status": "success",
+            "message": "Notification cancelled",
+            "notification_id": notification_id,
+            "task_id": result.id
+        }
+
+    @staticmethod
+    def get_notification(notification_id: str) -> Notification|None:
+        return NotificationService._get_notification_or_raise(notification_id)
+
+    @staticmethod
+    def list_notifications() -> List[Notification]|None:
         session = db_session()
         try:
             query = session.query(Notification)
             query = query.order_by(Notification.created_at.desc())
             notifications = query.all()
-
-            status_map = {
-                NotificationStatus.SCHEDULED: "Pending",
-                NotificationStatus.PROCESSING: "Pending",
-                NotificationStatus.DELIVERED: "Sent",
-                NotificationStatus.FAILED: "Failed",
-                NotificationStatus.CANCELLED: "Cancelled"
-            }
-
-            results = []
-            for notif in notifications:
-                results.append({
-                    "id": notif.id,
-                    "recipient_id": notif.recipient_id,
-                    "content": notif.content,
-                    "channel": notif.channel,
-                    "status": status_map.get(notif.status, "Unknown"),
-                    "created_at": notif.created_at.isoformat(),
-                    "scheduled_time": notif.scheduled_time.isoformat(),
-                    "timezone": notif.timezone,
-                    "attempt_count": notif.attempt_count,
-                    "task_id": notif.task_id,
-                })
-            return results
+            return notifications
         finally:
             session.close()
 
@@ -195,5 +153,3 @@ class NotificationService:
             start_date=start_datetime,
             end_date=end_datetime
         )
-
-

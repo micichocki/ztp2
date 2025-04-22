@@ -2,7 +2,6 @@ import click
 import socket
 from celery_app import app
 
-
 class Worker:
 
     @staticmethod
@@ -12,7 +11,6 @@ class Worker:
         
         app.conf.worker_proc_alive_timeout = 60
         app.conf.worker_name = worker_name
-        
         worker = app.Worker(
             hostname=worker_name,
             queues=['notifications'],
@@ -25,7 +23,6 @@ class Worker:
             task_soft_time_limit=1500
         )
 
-
         worker.start()
 
 @click.command()
@@ -34,4 +31,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-

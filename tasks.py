@@ -2,7 +2,6 @@ import logging
 import random
 import pytz
 import time
-import socket
 from datetime import datetime, timedelta
 from celery.exceptions import MaxRetriesExceededError
 from typing import Optional, Callable, Union, Any
@@ -10,7 +9,6 @@ from typing import Optional, Callable, Union, Any
 from celery_app import app
 from models import Notification, NotificationStatus, DeliveryChannel, db_session
 from config import MAX_RETRY_ATTEMPTS, RETRY_DELAY, APPROPRIATE_HOURS_START, APPROPRIATE_HOURS_END
-from metrics import metrics
 
 logger = logging.getLogger(__name__)
 
