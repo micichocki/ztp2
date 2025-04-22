@@ -1,5 +1,5 @@
 from typing import List
-from exception import ValidationError
+from exceptions.exception import ValidationError
 from models import NotificationRequest
 from policy import TimeZonePolicy, TimeRangePolicy, PriorityPolicy, ContentLengthPolicy, ValidationPolicy
 

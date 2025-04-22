@@ -3,9 +3,9 @@ from typing import Optional, List, Dict, Any
 import logging
 from datetime import datetime
 
-from exception import NotificationNotFoundException, InvalidNotificationStateException
+from exceptions.exception import NotificationNotFoundException, InvalidNotificationStateException
 from models import DeliveryChannel, Notification, NotificationStatus, db_session, NotificationRequest
-from notification_validator import NotificationValidator
+from validators.notification_validator import NotificationValidator
 from tasks import schedule_notification, force_immediate_delivery, cancel_notification
 from metrics import metrics
 

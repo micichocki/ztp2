@@ -1,7 +1,7 @@
 import pytz
 from datetime import datetime
 from typing import Protocol
-from exception import ValidationError
+from exceptions.exception import ValidationError
 from models import NotificationRequest
 
 
