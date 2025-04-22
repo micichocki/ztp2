@@ -17,44 +17,24 @@ logger = logging.getLogger(__name__)
 class NotificationDeliveryService:
 
     @staticmethod
-    def deliver_push(notification: Notification) -> bool:
-        logger.info(f"Sending PUSH notification {notification.id} to {notification.recipient_id}")
-        
-        processing_time = random.uniform(8.0, 12.0)
-        
-        for i in range(10):
-            time.sleep(processing_time / 10)
-            print("Processsing...")
-        
-        if random.random() < 0.5:
-            return True
-        raise Exception("Random delivery failure (50% chance)")
-
-    @staticmethod
-    def deliver_email(notification: Notification) -> bool:
-        logger.info(f"Sending EMAIL notification {notification.id} to {notification.recipient_id}")
+    def deliver_notification(notification: Notification, channel: DeliveryChannel) -> bool:
+        logger.info(f"Sending {channel.name} notification {notification.id} to {notification.recipient_id}")
 
         processing_time = random.uniform(8.0, 12.0)
         for i in range(10):
             time.sleep(processing_time / 10)
-            print("Processsing...")
-        
+            logger.info("Processing...")
+
         if random.random() < 0.5:
             return True
-        raise Exception("Random delivery failure (50% chance)")
+        raise Exception(f"Random delivery failure (50% chance) for {channel.name}")
 
     @classmethod
-    def get_delivery_method(cls, channel: DeliveryChannel) -> Callable[[Notification], bool]:
-        delivery_methods = {
-            DeliveryChannel.PUSH: cls.deliver_push,
-            DeliveryChannel.EMAIL: cls.deliver_email,
-        }
-        
-        if channel not in delivery_methods:
+    def get_delivery_method(cls, channel: DeliveryChannel) -> Callable[[Any], bool]:
+        if channel not in [DeliveryChannel.PUSH, DeliveryChannel.EMAIL]:
             raise ValueError(f"Unsupported channel: {channel}")
-        
-        return delivery_methods[channel]
 
+        return lambda notification: cls.deliver_notification(notification, channel)
 
 def _handle_notification_delivery(
     task_instance: Any,
@@ -86,7 +66,7 @@ def _handle_notification_delivery(
             delivery_successful = delivery_method(notification)
             
             if delivery_successful:
-                logger.info(f"Successfully delivered {channel.name} notification {notification_id}")
+                logger.info(f"Successfully delivered {channel.name} notification {notification_id} content: {notification.content}")
                 notification.status = NotificationStatus.DELIVERED
                 session.commit()
                 
@@ -189,7 +169,6 @@ def schedule_notification(
             args=[notification_id],
             eta=scheduled_dt,
             queue='notifications',
-            routing_key=channel
         )
         
         notification.task_id = task.id
@@ -218,24 +197,6 @@ def revoke_task(task_id: str) -> bool:
             signal='SIGTERM', 
             destination=None
         )
-        
-        inspector = app.control.inspect()
-        reserved_tasks = inspector.reserved()
-        scheduled_tasks = inspector.scheduled()
-        
-        if reserved_tasks:
-            for worker, tasks in reserved_tasks.items():
-                for task in tasks:
-                    if task['id'] == task_id:
-                        logger.info(f"Found reserved task {task_id} on worker {worker}, forcing removal")
-                        app.control.terminate(task_id, signal='SIGKILL')
-        
-        if scheduled_tasks:
-            for worker, tasks in scheduled_tasks.items():
-                for task in tasks:
-                    if task['id'] == task_id:
-                        logger.info(f"Found scheduled task {task_id} on worker {worker}, forcing removal")
-                        app.control.terminate(task_id, signal='SIGKILL')
         
         logger.info(f"Revoked task {task_id}")
         return True
@@ -284,7 +245,6 @@ def force_immediate_delivery(notification_id: str) -> Optional[bool]:
             args=[notification_id], 
             countdown=0,
             queue='notifications',
-            routing_key=channel
         )
         
         notification.task_id = task.id

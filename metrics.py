@@ -38,17 +38,13 @@ class MetricsCollector:
     def get_metrics(
         self, 
         server_id: Optional[str] = None, 
-        channel: Optional[str] = None,
-        time_period: Optional[int] = None
+        channel: Optional[str] = None
     ) -> Dict[str, Any]:
         with self._lock:
             result = {
                 "timestamp": datetime.now().isoformat(),
                 "servers": {}
             }
-            
-            current_time = int(time.time())
-            min_time = current_time - time_period if time_period else 0
             
             servers = [server_id] if server_id else self._metrics_data.keys()
             
@@ -73,8 +69,7 @@ class MetricsCollector:
                         status_count = 0
                         
                         for ts, count in timestamps.items():
-                            if ts >= min_time:
-                                status_count += count
+                            status_count += count
                         
                         if status_count > 0:
                             channel_data["statuses"][status] = status_count

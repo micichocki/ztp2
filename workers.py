@@ -2,12 +2,11 @@ import click
 import socket
 import threading
 import uvicorn
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException
 from typing import Optional
 
 from celery_app import app
 from service import NotificationService
-from models import DeliveryChannel
 
 
 def create_metrics_app(worker_type, port):
@@ -20,14 +19,12 @@ def create_metrics_app(worker_type, port):
     @metrics_app.get("/metrics")
     def get_metrics(
         server: Optional[str] = None,
-        channel: Optional[str] = None,
-        period: Optional[int] = Query(None, ge=1)
+        channel: Optional[str] = None
     ):
         try:
             metrics_data = NotificationService.get_metrics(
                 server_id=server,
-                channel=channel,
-                time_period=period
+                channel=channel
             )
             return metrics_data
         except Exception as e:
@@ -42,27 +39,20 @@ def create_metrics_app(worker_type, port):
 class Worker:
 
     @staticmethod
-    def start_worker(channels=None):
-        if channels is None:
-            channels = [ch.value for ch in DeliveryChannel]
-        
-        if isinstance(channels, str):
-            channels = [channels]
-        
+    def start_worker():
         worker_name = f'worker.{socket.gethostname()}'
         
-        print(f"Starting worker {worker_name} for channels: {', '.join(channels)}")
-        
-        binding_keys = channels
-        
+        print(f"Starting worker {worker_name}")
         worker = app.Worker(
             hostname=worker_name,
             queues=['notifications'],
             concurrency=1,
             loglevel='INFO',
-            consumer_arguments={
-                'x-binding-key': binding_keys
-            }
+            prefetch_multiplier=1,
+            max_priority=100,
+            max_tasks_per_child=100,
+            task_time_limit=1800,
+            task_soft_time_limit=1500
         )
 
         from config import WORKER_METRICS_PORT
@@ -71,14 +61,10 @@ class Worker:
 
         worker.start()
 
-
 @click.command()
-@click.argument('channels', nargs=-1, type=click.Choice(['push', 'email', 'all']))
-def main(channels):
-    if not channels or 'all' in channels:
-        Worker.start_worker()
-    else:
-        Worker.start_worker(channels)
+def main():
+    Worker.start_worker()
 
 if __name__ == '__main__':
     main()
+

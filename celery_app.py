@@ -22,12 +22,13 @@ app.conf.update(
     task_reject_on_worker_lost=True,
     task_default_queue='notifications',
     task_routes={
-        'tasks.send_push_notification': {'queue': 'notifications', 'routing_key': 'push'},
-        'tasks.send_email_notification': {'queue': 'notifications', 'routing_key': 'email'},
+        'tasks.send_push_notification': {'queue': 'notifications'},
+        'tasks.send_email_notification': {'queue': 'notifications'},
     },
     worker_send_task_events=True,
     task_send_sent_event=True,
     task_track_started=True,
+    task_inherit_parent_priority=True,
     worker_log_color=True,
 )
 
