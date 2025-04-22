@@ -8,10 +8,7 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 
 class MetricsCollector:
-    """Collects and provides metrics about notification deliveries"""
-    
     def __init__(self):
-        """Initialize the metrics collector with nested defaultdicts for storing metrics"""
         self._metrics_data = defaultdict(
             lambda: defaultdict(
                 lambda: defaultdict(
@@ -28,14 +25,6 @@ class MetricsCollector:
         channel: str, 
         status: str
     ) -> None:
-        """
-        Record a notification event with the given attributes
-        
-        Args:
-            server_id: The ID of the server processing the notification
-            channel: The delivery channel (push, email, etc.)
-            status: The status of the notification (scheduled, delivered, etc.)
-        """
         with self._lock:
             current_time = int(time.time())
             
@@ -52,17 +41,6 @@ class MetricsCollector:
         channel: Optional[str] = None,
         time_period: Optional[int] = None
     ) -> Dict[str, Any]:
-        """
-        Get metrics with optional filtering
-        
-        Args:
-            server_id: Filter by server ID
-            channel: Filter by delivery channel
-            time_period: Time period in seconds to include (from now)
-            
-        Returns:
-            Dict containing aggregated metrics
-        """
         with self._lock:
             result = {
                 "timestamp": datetime.now().isoformat(),

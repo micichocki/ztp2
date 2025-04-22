@@ -1,7 +1,9 @@
 from celery import Celery
-from celery.signals import worker_ready, worker_shutdown, task_success, task_failure
+from celery.signals import worker_ready, worker_shutdown
 from config import CELERY_BROKER_URL, CELERY_RESULT_BACKEND, METRICS_ENABLED
-import sys
+import logging
+
+logger = logging.getLogger(__name__)
 
 app = Celery(
     'notification_system',
@@ -25,6 +27,8 @@ app.conf.update(
     },
     worker_send_task_events=True,
     task_send_sent_event=True,
+    task_track_started=True,
+    worker_log_color=True,
 )
 
 if METRICS_ENABLED:
@@ -33,34 +37,10 @@ if METRICS_ENABLED:
         worker = kwargs.get('sender')
         if worker:
             app.current_worker = worker
+            logger.info(f"Worker {worker.hostname} is ready")
 
     @worker_shutdown.connect
     def capture_worker_shutdown(**kwargs):
         if hasattr(app, 'current_worker'):
+            logger.info(f"Worker {app.current_worker.hostname} is shutting down")
             delattr(app, 'current_worker')
-
-@task_success.connect
-def print_notification_success(sender=None, result=None, **kwargs):
-    task = sender.name
-    
-    if task in ['tasks.send_push_notification', 'tasks.send_email_notification']:
-        task_id = kwargs.get('task_id', 'unknown')
-        args = kwargs.get('args', [])
-        notification_id = args[0] if args else 'unknown'
-        
-        channel_type = 'PUSH' if 'push' in task else 'EMAIL'
-        print(f"\n✅ SUCCESS: {channel_type} notification {notification_id} delivered successfully\n", 
-              file=sys.stdout, flush=True)
-
-@task_failure.connect
-def print_notification_failure(sender=None, exception=None, **kwargs):
-    task = sender.name
-    
-    if task in ['tasks.send_push_notification', 'tasks.send_email_notification']:
-        task_id = kwargs.get('task_id', 'unknown')
-        args = kwargs.get('args', [])
-        notification_id = args[0] if args else 'unknown'
-        
-        channel_type = 'PUSH' if 'push' in task else 'EMAIL'
-        print(f"\n❌ FAILED: {channel_type} notification {notification_id} delivery failed: {str(exception)}\n", 
-              file=sys.stderr, flush=True)

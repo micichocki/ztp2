@@ -45,7 +45,7 @@ class NotificationService:
             scheduled_time=notification.scheduled_time
         )
         return task.id
-    
+
     @staticmethod
     def force_delivery(notification_id: str) -> Dict[str, Any]|None:
         session = db_session()
@@ -54,7 +54,7 @@ class NotificationService:
             if not notification:
                 logger.warning(f"Force delivery attempt for non-existent notification: {notification_id}")
                 raise NotificationNotFoundException(f"Notification not found: {notification_id}")
-            
+
             if notification.status != NotificationStatus.SCHEDULED:
                 logger.warning(
                     f"Cannot force delivery for notification {notification_id} with status {notification.status}"
@@ -65,7 +65,7 @@ class NotificationService:
 
             logger.info(f"Forcing immediate delivery of notification {notification_id}")
             result = force_immediate_delivery.delay(notification_id)
-            
+
             return {
                 "status": "success",
                 "message": "Notification delivery forced",
@@ -74,17 +74,16 @@ class NotificationService:
             }
         finally:
             session.close()
-    
+
     @staticmethod
     def cancel_notification(notification_id: str) -> Dict[str, Any]|None:
-        """Cancel a scheduled notification"""
         session = db_session()
         try:
             notification = session.query(Notification).filter(Notification.id == notification_id).first()
             if not notification:
                 logger.warning(f"Cancel attempt for non-existent notification: {notification_id}")
                 raise NotificationNotFoundException(f"Notification not found: {notification_id}")
-            
+
             if notification.status != NotificationStatus.SCHEDULED:
                 logger.warning(
                     f"Cannot cancel notification {notification_id} with status {notification.status}"
@@ -92,10 +91,10 @@ class NotificationService:
                 raise InvalidNotificationStateException(
                     f"Cannot cancel notification with status {notification.status}"
                 )
-            
+
             logger.info(f"Cancelling scheduled notification {notification_id}")
             result = cancel_notification.delay(notification_id)
-            
+
             return {
                 "status": "success",
                 "message": "Notification cancelled",
@@ -104,7 +103,7 @@ class NotificationService:
             }
         finally:
             session.close()
-        
+
     @staticmethod
     def get_notification_status(notification_id: str) -> Dict[str, Any]|None:
         session = db_session()
@@ -113,7 +112,7 @@ class NotificationService:
             if not notification:
                 logger.warning(f"Status request for non-existent notification: {notification_id}")
                 raise NotificationNotFoundException(f"Notification not found: {notification_id}")
-            
+
             status_map = {
                 "scheduled": "Pending",
                 "processing": "Pending",
@@ -121,26 +120,26 @@ class NotificationService:
                 "failed": "Failed",
                 "cancelled": "Cancelled"
             }
-            
+
             local_tz = pytz.timezone(notification.timezone)
             scheduled_local = notification.scheduled_time.astimezone(local_tz)
-            
+
             hour = scheduled_local.hour
             is_appropriate = APPROPRIATE_HOURS_START <= hour < APPROPRIATE_HOURS_END
-            
+
             estimated_delivery_time = scheduled_local.isoformat()
             if not is_appropriate and notification.status != NotificationStatus.CANCELLED:
                 next_day = scheduled_local.date()
                 if hour >= APPROPRIATE_HOURS_END:
                     next_day = next_day + timedelta(days=1)
-                    
+
                 adjusted_time = local_tz.localize(
                     datetime.combine(next_day, datetime.min.time().replace(
                         hour=APPROPRIATE_HOURS_START, minute=0, second=0
                     ))
                 )
                 estimated_delivery_time = adjusted_time.isoformat()
-            
+
             return {
                 "id": notification.id,
                 "recipient_id": notification.recipient_id,
@@ -157,7 +156,7 @@ class NotificationService:
             }
         finally:
             session.close()
-    
+
     @staticmethod
     def list_notifications(
         status: Optional[str] = None,
@@ -169,7 +168,7 @@ class NotificationService:
         session = db_session()
         try:
             query = session.query(Notification)
-            
+
             filters = []
             if status:
                 status_map = {
@@ -181,21 +180,21 @@ class NotificationService:
                 internal_statuses = status_map.get(status, [])
                 if internal_statuses:
                     filters.append(Notification.status.in_(internal_statuses))
-            
+
             if timezone:
                 filters.append(Notification.timezone == timezone)
-                
+
             if recipient_id:
                 filters.append(Notification.recipient_id == recipient_id)
-            
+
             if filters:
                 query = query.filter(and_(*filters))
-            
+
             query = query.order_by(Notification.created_at.desc())
             query = query.limit(limit).offset(offset)
-            
+
             notifications = query.all()
-            
+
             status_map = {
                 NotificationStatus.SCHEDULED: "Pending",
                 NotificationStatus.PROCESSING: "Pending",
@@ -203,7 +202,7 @@ class NotificationService:
                 NotificationStatus.FAILED: "Failed",
                 NotificationStatus.CANCELLED: "Cancelled"
             }
-            
+
             results = []
             for notif in notifications:
                 local_tz = pytz.timezone(notif.timezone)
@@ -211,7 +210,7 @@ class NotificationService:
 
                 hour = scheduled_local.hour
                 is_appropriate = APPROPRIATE_HOURS_START <= hour < APPROPRIATE_HOURS_END
-                
+
                 results.append({
                     "id": notif.id,
                     "recipient_id": notif.recipient_id,
@@ -225,11 +224,11 @@ class NotificationService:
                     "appropriate_delivery": is_appropriate,
                     "attempt_count": notif.attempt_count
                 })
-            
+
             return results
         finally:
             session.close()
-            
+
     @staticmethod
     def get_metrics(
         server_id: Optional[str] = None,

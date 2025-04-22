@@ -1,9 +1,5 @@
 version: '3.8'
 
-# Define default environment variables that can be overridden
-x-worker-scale: &worker-scale
-  WORKERS: ${WORKERS:-2}
-
 services:
   db:
     image: postgres:13
@@ -47,27 +43,6 @@ services:
     environment:
       - DATABASE_URL=postgresql://ztp2:ztp2@db:5432/ztp2
     command: python init_db.py
-    volumes:
-      - .:/app
-
-  api:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    depends_on:
-      db:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
-      initialize_db:
-        condition: service_completed_successfully
-    ports:
-      - "5000:5000"
-    environment:
-      - DATABASE_URL=postgresql://ztp2:ztp2@db:5432/ztp2
-      - CELERY_BROKER_URL=amqp://ztp2:ztp2@rabbitmq:5672//
-      - CELERY_RESULT_BACKEND=db+postgresql://ztp2:ztp2@db:5432/ztp2
-    command: python app.py
     volumes:
       - .:/app
 

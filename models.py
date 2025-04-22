@@ -52,7 +52,7 @@ class Notification(Base):
         id: Optional[str] = None, 
         status: NotificationStatus = NotificationStatus.SCHEDULED,
         attempt_count: int = 0,
-        task_id: Optional[str] = None  # Added task_id parameter
+        task_id: Optional[str] = None
     ):
         current_time = datetime.now(pytz.UTC)
         scheduled_datetime = (
@@ -70,7 +70,7 @@ class Notification(Base):
             scheduled_time=scheduled_datetime,
             status=status,
             attempt_count=attempt_count,
-            task_id=task_id  # Initialize task_id
+            task_id=task_id
         )
     
     @property
@@ -103,10 +103,6 @@ class Notification(Base):
 
     @classmethod
     def get(cls, notification_id: str) -> Optional['Notification']:
-        """
-        DEPRECATED: This method can lead to detached instance errors.
-        Use a proper session context instead and query directly.
-        """
         session = db_session()
         try:
             notification = session.query(cls).filter(cls.id == notification_id).first()

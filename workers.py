@@ -43,7 +43,6 @@ class Worker:
 
     @staticmethod
     def start_worker(channels=None):
-        """Start a worker that can process all notification types or specific channels"""
         if channels is None:
             channels = [ch.value for ch in DeliveryChannel]
         

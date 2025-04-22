@@ -1,11 +1,10 @@
 import logging
 import random
 import pytz
-import sys
 import time
 from datetime import datetime
 from celery.exceptions import MaxRetriesExceededError
-from typing import Optional, Callable, Union, Literal, Dict, Any
+from typing import Optional, Callable, Union, Any
 
 from celery_app import app
 from models import Notification, NotificationStatus, DeliveryChannel, db_session
@@ -16,25 +15,16 @@ logger = logging.getLogger(__name__)
 
 
 class NotificationDeliveryService:
-    """Service for handling notification delivery logic"""
-    
+
     @staticmethod
     def deliver_push(notification: Notification) -> bool:
-        """Attempt to deliver push notification with simulated processing time and 50% failure rate."""
         logger.info(f"Sending PUSH notification {notification.id} to {notification.recipient_id}")
-        print(f"\n🔔 PROCESSING: PUSH notification to {notification.recipient_id}: {notification.content}\n", 
-              file=sys.stdout, flush=True)
         
-        # Simulate processing time (around 10 seconds)
         processing_time = random.uniform(8.0, 12.0)
-        print(f"⏳ Processing will take approximately {processing_time:.2f} seconds...", 
-              file=sys.stdout, flush=True)
         
-        # Show progress indicators during processing
         for i in range(10):
             time.sleep(processing_time / 10)
-            progress = (i + 1) * 10
-            print(f"⏳ Push processing: {progress}% complete", file=sys.stdout, flush=True)
+            print("Processsing...")
         
         if random.random() < 0.5:
             return True
@@ -42,21 +32,12 @@ class NotificationDeliveryService:
 
     @staticmethod
     def deliver_email(notification: Notification) -> bool:
-        """Attempt to deliver email notification with simulated processing time and 50% failure rate."""
         logger.info(f"Sending EMAIL notification {notification.id} to {notification.recipient_id}")
-        print(f"\n📧 PROCESSING: EMAIL notification to {notification.recipient_id}: {notification.content}\n", 
-              file=sys.stdout, flush=True)
-        
-        # Simulate processing time (around 10 seconds)
+
         processing_time = random.uniform(8.0, 12.0)
-        print(f"⏳ Processing will take approximately {processing_time:.2f} seconds...", 
-              file=sys.stdout, flush=True)
-        
-        # Show progress indicators during processing
         for i in range(10):
             time.sleep(processing_time / 10)
-            progress = (i + 1) * 10
-            print(f"⏳ Email processing: {progress}% complete", file=sys.stdout, flush=True)
+            print("Processsing...")
         
         if random.random() < 0.5:
             return True
@@ -204,7 +185,6 @@ def schedule_notification(
             logger.error(f"Unsupported channel: {channel}")
             return False
 
-        # Send to the appropriate channel with correct routing key
         task = channel_tasks[channel].apply_async(
             args=[notification_id],
             eta=scheduled_dt,
@@ -212,7 +192,6 @@ def schedule_notification(
             routing_key=channel
         )
         
-        # Store the task_id in the notification record
         notification.task_id = task.id
         session.commit()
         logger.info(f"Stored task ID {task.id} for notification {notification_id}")
@@ -228,15 +207,11 @@ def schedule_notification(
 
 
 def revoke_task(task_id: str) -> bool:
-    """Revoke a scheduled task in Celery queue"""
     if not task_id:
         logger.warning("No task ID provided for revocation")
         return False
     
     try:
-        # Use terminate=True to forcefully terminate the task if it's running
-        # Use signal='SIGKILL' for more aggressive termination if needed
-        # Use destination=None to broadcast to all workers
         app.control.revoke(
             task_id, 
             terminate=True, 
@@ -244,7 +219,6 @@ def revoke_task(task_id: str) -> bool:
             destination=None
         )
         
-        # Force immediate task removal from the queue
         inspector = app.control.inspect()
         reserved_tasks = inspector.reserved()
         scheduled_tasks = inspector.scheduled()
@@ -283,7 +257,6 @@ def force_immediate_delivery(notification_id: str) -> Optional[bool]:
             logger.warning(f"Cannot force delivery for notification {notification_id} with status {notification.status}")
             return False
 
-        # Cancel the existing scheduled task if it exists
         original_task_id = notification.task_id
         if original_task_id:
             logger.info(f"Revoking existing task {original_task_id} for notification {notification_id}")
@@ -340,14 +313,12 @@ def cancel_notification(notification_id: str) -> Optional[bool]:
             logger.warning(f"Cannot cancel notification {notification_id} with status {notification.status}")
             return False
         
-        # Revoke the original task if it exists
         original_task_id = notification.task_id
         if original_task_id:
             logger.info(f"Revoking task {original_task_id} for cancelled notification {notification_id}")
             if not revoke_task(original_task_id):
                 logger.warning(f"Failed to revoke task {original_task_id} directly, trying alternative methods")
                 
-                # Try alternative revocation method
                 try:
                     task = app.AsyncResult(original_task_id)
                     task.revoke(terminate=True, signal='SIGKILL')
