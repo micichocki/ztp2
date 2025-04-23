@@ -5,15 +5,18 @@ from exceptions.exception import NotificationNotFoundException, InvalidNotificat
 from models import NotificationRequest, ScheduleResponse, \
     ActionResponse, Notification
 from service import NotificationService
+from repositories.notification_repository import NotificationRepository
 import logging
 
 logger = logging.getLogger(__name__)
 
 class NotificationController:
-    @staticmethod
-    async def create_push_notification(request: NotificationRequest):
+    def __init__(self, service: NotificationService = None):
+        self.service = service or NotificationService(NotificationRepository())
+    
+    async def create_push_notification(self, request: NotificationRequest):
         try:
-            task_id = NotificationService.schedule_push_notification(request)
+            task_id = self.service.schedule_push_notification(request)
             
             return ScheduleResponse(
                 task_id=task_id,
@@ -27,10 +30,9 @@ class NotificationController:
             logger.error(f"Error scheduling push notification: {str(e)}")
             raise HTTPException(status_code=500, detail=str(e))
     
-    @staticmethod
-    async def create_email_notification(request: NotificationRequest):
+    async def create_email_notification(self, request: NotificationRequest):
         try:
-            task_id = NotificationService.schedule_email_notification(request)
+            task_id = self.service.schedule_email_notification(request)
             return ScheduleResponse(
                 task_id=task_id,
                 status='scheduled',
@@ -43,10 +45,9 @@ class NotificationController:
             logger.error(f"Error scheduling email notification: {str(e)}")
             raise HTTPException(status_code=500, detail=str(e))
     
-    @staticmethod
-    async def force_notification_delivery(notification_id: str):
+    async def force_notification_delivery(self, notification_id: str):
         try:
-            result = NotificationService.force_delivery(notification_id)
+            result = self.service.force_delivery(notification_id)
             return ActionResponse(**result)
         except NotificationNotFoundException as e:
             logger.warning(f"Notification not found: {notification_id}")
@@ -58,10 +59,9 @@ class NotificationController:
             logger.error(f"Error forcing notification delivery: {str(e)}")
             raise HTTPException(status_code=500, detail=str(e))
     
-    @staticmethod
-    async def cancel_notification(notification_id: str):
+    async def cancel_notification(self, notification_id: str):
         try:
-            result = NotificationService.cancel_notification(notification_id)
+            result = self.service.cancel_notification(notification_id)
             return ActionResponse(**result)
         except NotificationNotFoundException as e:
             logger.warning(f"Notification not found: {notification_id}")
@@ -73,10 +73,9 @@ class NotificationController:
             logger.error(f"Error canceling notification: {str(e)}")
             raise HTTPException(status_code=500, detail=str(e))
     
-    @staticmethod
-    async def get_notification(notification_id: str) -> Notification:
+    async def get_notification(self, notification_id: str) -> Notification:
         try:
-            return NotificationService.get_notification(notification_id)
+            return self.service.get_notification(notification_id)
         except NotificationNotFoundException as e:
             logger.warning(f"Notification not found: {notification_id}")
             raise HTTPException(status_code=404, detail=str(e))
@@ -84,23 +83,25 @@ class NotificationController:
             logger.error(f"Error retrieving notification: {str(e)}")
             raise HTTPException(status_code=500, detail=str(e))
     
-    @staticmethod
-    async def list_notifications() -> List[Notification]:
+    async def list_notifications(self) -> List[Notification]:
         try:
-            return NotificationService.list_notifications()
+            return self.service.list_notifications()
         except Exception as e:
             logger.error(f"Error listing notifications: {str(e)}")
             raise HTTPException(status_code=500, detail=str(e))
 
 class MetricsController:
-    @staticmethod
+    def __init__(self, service: NotificationService = None):
+        self.service = service or NotificationService(NotificationRepository())
+    
     async def get_metrics(
+        self,
         server: Optional[str] = None,
         start_date: Optional[str] = None,
         end_date: Optional[str] = None
     ):
         try:
-            metrics = NotificationService.get_metrics(
+            metrics = self.service.get_metrics(
                 server_id=server,
                 start_date=start_date,
                 end_date=end_date

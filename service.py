@@ -4,32 +4,34 @@ import logging
 from datetime import datetime
 
 from exceptions.exception import NotificationNotFoundException, InvalidNotificationStateException
-from models import DeliveryChannel, Notification, NotificationStatus, db_session, NotificationRequest
+from models import DeliveryChannel, Notification, NotificationStatus, NotificationRequest
 from validators.notification_validator import NotificationValidator
 from tasks import schedule_notification, force_immediate_delivery, cancel_notification
 from metrics import MetricsCollector
+from repositories.notification_repository import NotificationRepository
 
 logger = logging.getLogger(__name__)
 
 class NotificationService:
+    def __init__(self, repository: NotificationRepository = None):
+        self.repository = repository or NotificationRepository()
 
-    @staticmethod
-    def _calculate_probabilistic_priority(base_priority: int = 5) -> int:
+    def _calculate_probabilistic_priority(self, base_priority: int = 5) -> int:
         rand_value = random.randint(0, 100)
         probability_factor = base_priority / 10.0
         actual_priority = int(rand_value * probability_factor + (base_priority * 10 * (1 - probability_factor)))
         logger.info(f"Base priority {base_priority} converted to actual priority {actual_priority}")
         return actual_priority
 
-    @staticmethod
     def _schedule_notification(
+        self,
         notification: NotificationRequest,
         channel: DeliveryChannel
     ) -> str:
         validator = NotificationValidator(notification)
         validator.validate()
 
-        actual_priority = NotificationService._calculate_probabilistic_priority(notification.priority)
+        actual_priority = self._calculate_probabilistic_priority(notification.priority)
 
         task = schedule_notification.apply_async(
             args=[
@@ -43,42 +45,36 @@ class NotificationService:
         )
         return task.id
 
-    @staticmethod
     def schedule_push_notification(
+        self,
         notification: NotificationRequest,
     ) -> str:
-        return NotificationService._schedule_notification(notification, DeliveryChannel.PUSH)
+        return self._schedule_notification(notification, DeliveryChannel.PUSH)
 
-    @staticmethod
     def schedule_email_notification(
-     notification: NotificationRequest,
+        self,
+        notification: NotificationRequest,
     ) -> str:
-        return NotificationService._schedule_notification(notification, DeliveryChannel.EMAIL)
+        return self._schedule_notification(notification, DeliveryChannel.EMAIL)
 
-    @staticmethod
-    def _get_notification_or_raise(notification_id: str, expected_status: Optional[NotificationStatus] = None) -> Notification|None:
-        session = db_session()
-        try:
-            notification = session.query(Notification).filter(Notification.id == notification_id).first()
-            if not notification:
-                logger.warning(f"Request for non-existent notification: {notification_id}")
-                raise NotificationNotFoundException(f"Notification not found: {notification_id}")
+    def _get_notification_or_raise(self, notification_id: str, expected_status: Optional[NotificationStatus] = None) -> Notification:
+        notification = self.repository.get_by_id(notification_id)
+        if not notification:
+            logger.warning(f"Request for non-existent notification: {notification_id}")
+            raise NotificationNotFoundException(f"Notification not found: {notification_id}")
 
-            if expected_status and notification.status != expected_status:
-                logger.warning(
-                    f"Invalid status for notification {notification_id}: expected {expected_status}, got {notification.status}"
-                )
-                raise InvalidNotificationStateException(
-                    f"Cannot perform operation on notification with status {notification.status}"
-                )
+        if expected_status and notification.status != expected_status:
+            logger.warning(
+                f"Invalid status for notification {notification_id}: expected {expected_status}, got {notification.status}"
+            )
+            raise InvalidNotificationStateException(
+                f"Cannot perform operation on notification with status {notification.status}"
+            )
 
-            return notification
-        finally:
-            session.close()
+        return notification
 
-    @staticmethod
-    def force_delivery(notification_id: str) -> Dict[str, Any]|None:
-        notification = NotificationService._get_notification_or_raise(
+    def force_delivery(self, notification_id: str) -> Dict[str, Any]:
+        notification = self._get_notification_or_raise(
             notification_id,
             expected_status=NotificationStatus.SCHEDULED
         )
@@ -93,9 +89,8 @@ class NotificationService:
             "task_id": result.id
         }
 
-    @staticmethod
-    def cancel_notification(notification_id: str) -> Dict[str, Any]|None:
-        notification = NotificationService._get_notification_or_raise(
+    def cancel_notification(self, notification_id: str) -> Dict[str, Any]:
+        notification = self._get_notification_or_raise(
             notification_id,
             expected_status=NotificationStatus.SCHEDULED
         )
@@ -110,23 +105,14 @@ class NotificationService:
             "task_id": result.id
         }
 
-    @staticmethod
-    def get_notification(notification_id: str) -> Notification|None:
-        return NotificationService._get_notification_or_raise(notification_id)
+    def get_notification(self, notification_id: str) -> Notification:
+        return self._get_notification_or_raise(notification_id)
 
-    @staticmethod
-    def list_notifications() -> List[Notification]|None:
-        session = db_session()
-        try:
-            query = session.query(Notification)
-            query = query.order_by(Notification.created_at.desc())
-            notifications = query.all()
-            return notifications
-        finally:
-            session.close()
+    def list_notifications(self) -> List[Notification]:
+        return self.repository.get_all()
 
-    @staticmethod
     def get_metrics(
+        self,
         server_id: Optional[str] = None,
         start_date: Optional[str] = None,
         end_date: Optional[str] = None
@@ -151,4 +137,3 @@ class NotificationService:
             start_date=start_datetime,
             end_date=end_datetime
         )
-

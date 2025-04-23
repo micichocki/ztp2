@@ -1,6 +1,6 @@
 import logging
 from typing import Dict, Optional, Any
-from datetime import datetime
+from datetime import datetime, timezone
 from collections import defaultdict
 import requests
 
@@ -21,7 +21,7 @@ class MetricsCollector:
             end_date: Optional[datetime] = None
     ) -> Dict[str, Any]:
         result = {
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "servers": {},
         }
 

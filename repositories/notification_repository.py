@@ -24,6 +24,16 @@ class NotificationRepository:
             if not self.session:
                 session.close()
     
+    def get_all(self) -> List[Type[Notification]]|None:
+        session = self._get_session()
+        try:
+            query = session.query(Notification)
+            query = query.order_by(Notification.created_at.desc())
+            return query.all()
+        finally:
+            if not self.session:
+                session.close()
+    
     def save(self, notification: Notification) -> None:
         session = self._get_session()
         try:
