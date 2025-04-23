@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 class NotificationController:
     def __init__(self, service: NotificationService = None):
-        self.service = service or NotificationService(NotificationRepository())
+        self.service = service
     
     async def create_push_notification(self, request: NotificationRequest):
         try:
