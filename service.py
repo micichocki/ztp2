@@ -1,5 +1,5 @@
 import random
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Type
 import logging
 from datetime import datetime
 
@@ -108,7 +108,7 @@ class NotificationService:
     def get_notification(self, notification_id: str) -> Notification:
         return self._get_notification_or_raise(notification_id)
 
-    def list_notifications(self) -> List[Notification]:
+    def list_notifications(self) -> List[Type[Notification]]:
         return self.repository.get_all()
 
     def get_metrics(
