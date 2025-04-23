@@ -2,7 +2,7 @@ from typing import List
 
 from fastapi import APIRouter
 from controller import NotificationController, MetricsController
-from models import NotificationResponse, NotificationListResponse, ScheduleResponse, ActionResponse
+from models import NotificationResponse, ScheduleResponse, ActionResponse
 
 api_router = APIRouter(prefix="/api")
 

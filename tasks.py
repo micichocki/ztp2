@@ -6,6 +6,7 @@ from typing import Optional, Union, Any
 
 from celery_app import app
 from models import Notification, NotificationStatus, DeliveryChannel, db_session
+from repositories.notification_repository import NotificationRepository
 from config import MAX_RETRY_ATTEMPTS, RETRY_DELAY
 from utils.time_utils import TimeUtils
 from utils.task_utils import TaskManager
@@ -20,8 +21,9 @@ def _handle_notification_delivery(
     channel: DeliveryChannel
 ) -> Optional[bool]:
     session = db_session()
+    repository = NotificationRepository(session)
     try:
-        notification = session.query(Notification).filter(Notification.id == notification_id).first()
+        notification = repository.get_by_id(notification_id)
         if not notification:
             logger.error(f"Notification {notification_id} not found")
             return False
@@ -31,7 +33,7 @@ def _handle_notification_delivery(
             return False
 
         notification.status = NotificationStatus.PROCESSING
-        session.commit()
+        repository.commit(notification)
 
         try:
             delivery_method = NotificationDeliveryService.get_delivery_method(channel)
@@ -47,20 +49,20 @@ def _handle_notification_delivery(
             
             if result is True:
                 notification.status = NotificationStatus.DELIVERED
-                session.commit()
+                repository.commit()
                 return True
             
             notification.status = NotificationStatus.FAILED
-            session.commit()
+            repository.commit()
             return False
             
         except MaxRetriesExceededError:
             notification.status = NotificationStatus.FAILED
-            session.commit()
+            repository.commit()
             return False
         except Exception as e:
             notification.status = NotificationStatus.FAILED
-            session.commit()
+            repository.commit()
             logger.error(f"Unhandled exception in delivery: {str(e)}")
             return False
             
@@ -97,9 +99,9 @@ def schedule_notification(
     notification_id = notification.id
     
     session = db_session()
+    repository = NotificationRepository(session)
     try:
-        session.add(notification)
-        session.commit()
+        repository.save(notification)
         
         logger.info(f"Created notification {notification_id} for delivery via {channel}")
         
@@ -116,7 +118,7 @@ def schedule_notification(
             scheduled_dt = TimeUtils.get_next_appropriate_time(scheduled_dt, timezone)
             
             notification.scheduled_time = scheduled_dt
-            session.commit()
+            repository.commit()
             
             logger.info(f"Notification {notification_id} rescheduled for {scheduled_dt.isoformat()}")
 
@@ -133,7 +135,7 @@ def schedule_notification(
         )
         
         notification.task_id = task.id
-        session.commit()
+        repository.commit()
         logger.info(f"Stored task ID {task.id} for notification {notification_id}")
 
         logger.info(f"Scheduled notification {notification_id} with task {task.id} for delivery at {scheduled_dt.isoformat()}")
@@ -149,8 +151,9 @@ def schedule_notification(
 @app.task
 def force_immediate_delivery(notification_id: str) -> Optional[bool]:
     session = db_session()
+    repository = NotificationRepository(session)
     try:
-        notification = session.query(Notification).filter(Notification.id == notification_id).first()
+        notification = repository.get_by_id(notification_id)
         if not notification:
             logger.error(f"Notification {notification_id} not found")
             return False
@@ -168,7 +171,7 @@ def force_immediate_delivery(notification_id: str) -> Optional[bool]:
             logger.warning(f"No task ID found for notification {notification_id}")
         
         notification.status = NotificationStatus.PROCESSING
-        session.commit()
+        repository.commit()
 
         logger.info(f"Forcing immediate delivery of notification {notification_id}")
 
@@ -185,7 +188,7 @@ def force_immediate_delivery(notification_id: str) -> Optional[bool]:
         )
         
         notification.task_id = task.id
-        session.commit()
+        repository.commit()
         logger.info(f"Updated notification {notification_id} with new task ID {task.id}")
         
         return True
@@ -200,8 +203,9 @@ def force_immediate_delivery(notification_id: str) -> Optional[bool]:
 @app.task
 def cancel_notification(notification_id: str) -> Optional[bool]:
     session = db_session()
+    repository = NotificationRepository(session)
     try:
-        notification = session.query(Notification).filter(Notification.id == notification_id).first()
+        notification = repository.get_by_id(notification_id)
         if not notification:
             logger.error(f"Notification {notification_id} not found")
             return False
@@ -219,7 +223,7 @@ def cancel_notification(notification_id: str) -> Optional[bool]:
             logger.warning(f"No task ID found for notification {notification_id} to cancel")
         
         notification.status = NotificationStatus.CANCELLED
-        session.commit()
+        repository.commit()
         
         logger.info(f"Cancelled notification {notification_id}")
 
