@@ -59,8 +59,9 @@ services:
       - "5555:5555"
     environment:
       - CELERY_BROKER_URL=amqp://ztp2:ztp2@rabbitmq:5672//
-      - CELERY_RESULT_BACKEND=db+postgresql://ztp2:ztp2@db:5432/ztp2
-    command: celery -A tasks flower --port=5555 --address=0.0.0.0 --url-prefix=metrics
+      - CELERY_RESULT_BACKEND=db+postgresql://ztp2:ztp2@db:5432/
+      - FLOWER_UNAUTHENTICATED_API=true
+    command: celery -A tasks flower --port=5555 --address=0.0.0.0
     volumes:
       - .:/app
 
